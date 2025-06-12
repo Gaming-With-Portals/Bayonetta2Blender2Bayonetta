@@ -446,10 +446,6 @@ def write_bone_absolute_positions(f, sub_collection):
         f.seek(position_start + (bone_index * 12))
         f.write(struct.pack("<fff", bonex, boney, bonez))
     
-    f.seek(position_start + len(pose_bones) * 12)
-    f.write(struct.pack("<f", 0)) # uh uh, these aren't hard coded values! No! Just padding.... Bam! Sand in the eyes!!! 
-    f.write(struct.pack("<f", 0))
-    f.write(struct.pack("<f", 0)) 
 
 def write_materials(f, sub_collection, data_pool):
 
