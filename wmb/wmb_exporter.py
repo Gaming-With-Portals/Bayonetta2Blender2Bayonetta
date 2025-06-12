@@ -111,9 +111,20 @@ class eBatchData:
     
 class eMaterial():
     def __init__(self):
-        self.material_id = 0
-        self.material_flag = 0
-        self.material_size = 0
+        self.id = 0
+        self.flag = 0
+        self.size = 0
+        self.type = 0
+        self.data = []
+
+    def fetch_size(self):
+        return self.size
+    
+    def write(self, f):
+        f.write(struct.pack("<H", self.type))
+        f.write(struct.pack("<H", self.flag))
+        for i in self.data: # Write raw data
+            f.write(struct.pack("<i", i))
 
 def create_wmb_header(f, sub_collection, data_pool):
     f.write(b"WMB\x00")
@@ -144,7 +155,8 @@ def create_wmb_header(f, sub_collection, data_pool):
     f.write(struct.pack("<i", offset)) # okay so technically this offset should be calculated with the other stupid ass tables in mind but fuck that 
     offset += len(data_pool["materials"]) * 4
     f.write(struct.pack("<i", offset)) # material offsets
-    offset += len(data_pool["materials"]) * 208 # TODO: Use material data to calculate a proper offset
+    for mat in data_pool["materials"]:
+        offset+=mat.fetch_size()
     f.write(struct.pack("<i", len(data_pool["meshdata"].keys())))
     f.write(struct.pack("<i", offset)) # mesh offsets offsets
     offset += len(data_pool["meshdata"].keys()) * 4
@@ -180,14 +192,26 @@ def get_bone_count(sub_collection):
 def gen_material_data(sub_collection):
     unique_mats = set()
     arm_obj = sub_collection.collection.objects[0]
-
+    materials = []
     for child in arm_obj.children: 
         if child.type != 'MESH':
             continue
         for slot in child.material_slots:
             if slot.material:
                 unique_mats.add(slot.material)
-    return unique_mats
+
+    for mat in unique_mats:
+        emat = eMaterial()
+        emat.id = int(mat.name[-1])
+        emat.size = int(mat["size"])
+        emat.flag = int(mat["flags"])
+        emat.type = int(mat["type"])
+        emat.data = mat["data"]
+        materials.append(emat)
+
+
+
+    return materials
 
 
 def get_vertex_weights(vertex, obj, max_weights=4):
@@ -427,33 +451,15 @@ def write_bone_absolute_positions(f, sub_collection):
     f.write(struct.pack("<f", 0))
     f.write(struct.pack("<f", 0)) 
 
-def write_materials(f, sub_collection):
-    
-    unique_mats = {}
-    arm_obj = sub_collection.collection.objects[0]
+def write_materials(f, sub_collection, data_pool):
 
-    for child in arm_obj.children: 
-        if child.type != 'MESH':
-            continue
-        for slot in child.material_slots:
-            mat = slot.material
-            if mat and mat.name not in unique_mats:
-                unique_mats[mat.name] = mat
+    offset_ticker = 0
+    for mat in data_pool["materials"]:
+        f.write(struct.pack("<I", offset_ticker))
+        offset_ticker+=mat.fetch_size()
 
-    material_offset_marker = 0
-    material_offsets = []
-
-    for mat in unique_mats.values():
-        f.write(struct.pack("<i", material_offset_marker))
-        material_offsets.append(material_offset_marker)
-        material_offset_marker += 208
-
-    material_start = f.tell()
-    for i, mat in enumerate(unique_mats.values()):
-        f.seek(material_offsets[i] + material_start)
-        f.write(struct.pack("<h", mat["type"]))
-        f.write(struct.pack("<h", mat["flags"]))
-        f.write(struct.pack("<51i", *mat["data"]))
+    for mat in data_pool["materials"]:
+        mat.write(f)
 
 
 
@@ -499,7 +505,7 @@ def export(filepath):
     write_bone_relative_positions(f, sub_collection)
     write_bone_absolute_positions(f, sub_collection)
     write_bone_translate_table(f, sub_collection)
-    write_materials(f, sub_collection)
+    write_materials(f, sub_collection, data_pool)
     write_meshes(f, sub_collection, data_pool)
 
     f.close()
