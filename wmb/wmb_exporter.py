@@ -251,7 +251,7 @@ def get_vertex_weights(vertex, obj, max_weights=4):
 
 def gen_vertex_pool(sub_collection):
     arm_obj = sub_collection.collection.objects[0]
-
+    tangent_map = defaultdict(list)
     position_data = []
     uv_data = []
     normal_data = []
@@ -259,6 +259,7 @@ def gen_vertex_pool(sub_collection):
     color_count = 1 
     colors = []
     bone_data = []
+    tangents = []
 
     depsgraph = bpy.context.evaluated_depsgraph_get()
     for child in arm_obj.children:
@@ -272,17 +273,24 @@ def gen_vertex_pool(sub_collection):
 
         eval_obj = child.evaluated_get(depsgraph)
         eval_mesh = eval_obj.to_mesh()
-
+        eval_mesh.calc_tangents(uvmap=eval_mesh.uv_layers.active.name)
         uv_loop_data = eval_mesh.uv_layers.active.data if eval_mesh.uv_layers.active else None
 
         uv_map = {}
-
-        for loop in eval_mesh.loops:
+        sorted_loops = sorted(eval_mesh.loops, key=lambda loop: loop.vertex_index)
+        for loop in sorted_loops:
             if uv_loop_data:
                 uv = uv_loop_data[loop.index].uv
                 vert_index = loop.vertex_index
                 if vert_index not in uv_map:
                     uv_map[vert_index] = (uv.x, 1-uv.y)
+
+                loopTangent = loop.tangent.normalized()
+                tx = int(max(0, min(254, loopTangent.x * 127.0 + 127.0)))
+                ty = int(max(0, min(254, loopTangent.y * 127.0 + 127.0)))
+                tz = int(max(0, min(254, loopTangent.z * 127.0 + 127.0)))
+                sign = 0xff if loop.bitangent_sign == -1 else 0x00
+                tangents.append([tx, ty, tz, sign])
 
         for vert in eval_mesh.vertices:
 
@@ -301,7 +309,7 @@ def gen_vertex_pool(sub_collection):
 
         eval_obj.to_mesh_clear()
         child["vertex_end"] = len(position_data)
-    return (position_data, uv_data, uv_layer_count, color_count, colors, normal_data, bone_data)
+    return (position_data, uv_data, uv_layer_count, color_count, colors, normal_data, bone_data, tangents)
 
 def gen_mesh_data(sub_collection, data_pool):
     arm_obj = sub_collection.collection.objects[0]
@@ -335,7 +343,9 @@ def gen_mesh_data(sub_collection, data_pool):
             batch_data.parent_mesh_id = int(name_parts[0])
             batch_data.vertex_start = child["vertex_start"]
             batch_data.vertex_end = child["vertex_end"]
-            batch_data.required_bones = list(range(48))
+            for group in child.vertex_groups:
+                batch_data.required_bones.append(int(group.name[4:]))
+            
             mesh = child.data
             bm = bmesh.new()
             bm.from_mesh(mesh)
@@ -376,7 +386,7 @@ def write_vertex_pool(f, sub_collection, data_pool):
         nz = max(-127, min(127, nz))
 
         f.write(struct.pack('<4b', 0, nz, ny, nx))
-        f.write(struct.pack("<i", 0))
+        f.write(struct.pack("<4B", *vertexes[7][vertexid]))
         f.write(struct.pack("<BBBB", *vertexes[6][vertexid][0]))
         f.write(struct.pack("<BBBB", *vertexes[6][vertexid][1]))
     print("[>] Writing Vertex[EX] Pool Data (2/2)")
