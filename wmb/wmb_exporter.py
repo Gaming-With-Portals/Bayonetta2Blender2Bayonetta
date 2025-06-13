@@ -380,9 +380,9 @@ def write_vertex_pool(f, sub_collection, data_pool):
     for vertexid in range(len(vertexes[0])):
         f.write(struct.pack("<fff", *vertexes[0][vertexid]))
         f.write(struct.pack("<ee", *vertexes[1][vertexid]))
-        nx = int(round(vertexes[5][vertexid][0] * 127))
-        ny = int(round(vertexes[5][vertexid][1] * 127))
-        nz = int(round(vertexes[5][vertexid][2] * 127))
+        nx = int(round(-vertexes[5][vertexid][0] * 127))
+        ny = int(round(-vertexes[5][vertexid][1] * 127))
+        nz = int(round(-vertexes[5][vertexid][2] * 127))
 
         # Clamp to valid byte range
         nx = max(-127, min(127, nx))
