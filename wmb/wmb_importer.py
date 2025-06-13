@@ -6,6 +6,31 @@ import math
 from mathutils import Vector
 import bmesh
 
+
+
+materialSizeDictionary={
+    56:212,
+    57:212,
+    117:172,
+    58:212,
+    109:208,
+    107:208,
+    104:172,
+    178:212,
+    114:208,
+    132:228,
+    179:292,
+    187:292,
+    68:228,
+    76:172,
+    151:276,
+    135:212,
+    60:212,
+    184:212,
+    163:228
+
+}
+
 wmb_material_list = {}
 wmb_texture_list = {}
 
@@ -124,7 +149,8 @@ class WMBMaterial:
     def __init__(self, file):
         self.matID = struct.unpack("<h", file.read(2))[0]
         self.flags = struct.unpack("<h", file.read(2))[0]
-        self.data = struct.unpack("<51i", file.read(204))
+        datasize = materialSizeDictionary[self.matID] - 4
+        self.data = struct.unpack("<" + str(datasize // 4) + "i", file.read(materialSizeDictionary[self.matID] - 4))
         self.sampler_1_id = self.data[0]
         self.sampler_2_id = self.data[1]
 
@@ -168,7 +194,8 @@ class WMBMaterial:
         mat["type"] = self.matID
         mat["flags"] = self.flags
         mat["data"] = self.data
-        mat["size"] = 208
+        mat["size"] = materialSizeDictionary[self.matID]
+        
         return mat
     
 def ImportWMB(filepath, textures=""):
@@ -377,12 +404,15 @@ def ImportWMB(filepath, textures=""):
 
         mesh_batches = []
         current_mesh_pos = offsetMeshes
+        f.seek(offsetMeshesOffsets)
+        mesh_offsets = [struct.unpack('<I', f.read(4))[0] for _ in range(numMeshes)]
 
         mesh_flags = []
         mesh_datas = []
 
         for x in range(numMeshes):
-            f.seek(current_mesh_pos)
+            f.seek(offsetMeshes + mesh_offsets[x])
+            current_mesh_pos = f.tell()
             
             f.read(2)
             num_batches = struct.unpack('<H', f.read(2))[0]
@@ -392,7 +422,7 @@ def ImportWMB(filepath, textures=""):
             f.read(16)
             name = f.read(32).split(b'\x00', 1)[0].decode('ascii')
             mesh_datas.append(struct.unpack('<3ff3f3fff', f.read(12 + 4 + 12 + 12 + 8)))
-
+            print(f"[>] Loading Mesh: {name}")
             while True:
                 val = f.read(2)
                 if val != b'\xFB\xFB':
@@ -402,8 +432,7 @@ def ImportWMB(filepath, textures=""):
             f.seek(batch_offset_table)
             batch_rel_offsets = [struct.unpack('<I', f.read(4))[0] for _ in range(num_batches)]
             batch_starts = [batch_offset_table + rel for rel in batch_rel_offsets]
-            if (len(batch_starts) <= 0):
-                continue
+
 
             batch_faces_list = []
             batch_data_list = []
@@ -459,8 +488,6 @@ def ImportWMB(filepath, textures=""):
                     f.seek(-2, 1)
                     break
 
-            current_mesh_pos = f.tell()
-
         for mesh_name, batch_faces_list, batch_bone_maps, batch_starts, mesh_index in mesh_batches:
             for batch_index, batch_faces in enumerate(batch_faces_list, 1):
                 object_name = f"{mesh_index}-{mesh_name}-{batch_index - 1}" # MGR2Blender style
@@ -490,6 +517,7 @@ def ImportWMB(filepath, textures=""):
 
                 obj = bpy.data.objects.new(object_name, mesh)
                 obj["flags"] = mesh_flags[mesh_index]
+                obj["batch_flags"] = batch_faces[1].flags
                 obj["data"] = mesh_datas[mesh_index]
                 obj["vertex_start"] = batch_faces[1].vertexStart
                 obj["vertex_end"] = batch_faces[1].vertexEnd

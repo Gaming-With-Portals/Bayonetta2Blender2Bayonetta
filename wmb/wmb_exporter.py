@@ -67,6 +67,7 @@ class eBatchData:
         self.material_id = 0
         self.vertex_start = 0
         self.vertex_end = 0
+        self.flag = 0
         
 
     def fetch_size(self):
@@ -103,7 +104,8 @@ class eBatchData:
         f.write(struct.pack("<I", 0))
 
         f.write(struct.pack("<I", len(self.required_bones)))
-        for boneID in self.required_bones:
+       # for boneID in range(len(self.required_bones)):
+        for boneID in range(len(self.required_bones)):
             f.write(struct.pack("<B", boneID))
         for indice in self.indices:
             f.write(struct.pack("<H", indice))
@@ -246,7 +248,6 @@ def get_vertex_weights(vertex, obj, max_weights=4):
     while len(bone_indices) < max_weights:
         bone_indices.append(0)
         bone_weights.append(0)
-    print(f"index {group_index} with weight {weight:.1f}")
     return bone_indices, bone_weights
 
 def gen_vertex_pool(sub_collection):
@@ -326,6 +327,7 @@ def gen_mesh_data(sub_collection, data_pool):
                 tmp_mesh_data = eMeshData()
                 tmp_mesh_data.exdata = child["data"]
                 tmp_mesh_data.name = name_parts[1]
+                tmp_mesh_data.mesh_id = int(name_parts[0])
                 if (len(name_parts[1]) > 31):
                     print(f"[X] Skipped mesh {name_parts[1]}, the name is longer than 32 characters! This will probably cause an export error")
                     continue
@@ -343,9 +345,12 @@ def gen_mesh_data(sub_collection, data_pool):
             batch_data.parent_mesh_id = int(name_parts[0])
             batch_data.vertex_start = child["vertex_start"]
             batch_data.vertex_end = child["vertex_end"]
-            for group in child.vertex_groups:
-                batch_data.required_bones.append(int(group.name[4:]))
-            
+            batch_data.flag = child["batch_flags"]
+            #for group in child.vertex_groups:
+            #    batch_data.required_bones.append(int(group.name[4:]))
+            for group in range(47):
+                batch_data.required_bones.append(group)
+
             mesh = child.data
             bm = bmesh.new()
             bm.from_mesh(mesh)
@@ -362,7 +367,6 @@ def gen_mesh_data(sub_collection, data_pool):
                 ])
 
             mesh_data_by_index[int(name_parts[0])].batches.append(batch_data)
-            print(f"Adding batch to mesh {name_parts[0]}: child={child.name}, batch_id={name_parts[2]}")
 
     for k, v in mesh_data_by_index.items():
         print(f"[Mesh {k}] -> {len(v.batches)} batches")
@@ -414,9 +418,8 @@ def write_bone_relative_positions(f, sub_collection):
     position_start = f.tell()
     arm_obj = sub_collection.collection.objects[0]
     bones = arm_obj.data.bones
-
-    for i, bone in enumerate(bones):
-        f.seek(position_start + (int(bone.name[4:]) * 12))
+    bones_sorted = sorted(bones, key=lambda b: int(b.name[4:]))
+    for i, bone in enumerate(bones_sorted):
         bonex = bone.tail.x
         boney = bone.tail.z
         bonez = -bone.tail.y 
@@ -441,19 +444,15 @@ def write_bone_absolute_positions(f, sub_collection):
     position_start = f.tell()
     
     arm_obj = sub_collection.collection.objects[0]
-    armature = arm_obj.data
-    pose_bones = arm_obj.pose.bones
-    
-    for i, pose_bone in enumerate(pose_bones):
-        bone_index = int(pose_bone.name[4:])
-
-        bone_tail_world = arm_obj.matrix_world @ pose_bone.tail
+    bones = arm_obj.pose.bones
+    bones_sorted = sorted(bones, key=lambda b: int(b.name[4:]))
+    for i, bone in enumerate(bones_sorted):
+        bone_tail_world = arm_obj.matrix_world @ bone.tail
 
         bonex = bone_tail_world.x
         boney = bone_tail_world.z
         bonez = -bone_tail_world.y
 
-        f.seek(position_start + (bone_index * 12))
         f.write(struct.pack("<fff", bonex, boney, bonez))
     
 
