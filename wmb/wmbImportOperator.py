@@ -25,8 +25,9 @@ class ExportBayoWMB(bpy.types.Operator, ExportHelper):
     filename_ext = ".wmb"
     filter_glob: StringProperty(default="*.wmb", options={'HIDDEN'})
 
+    all_bone_refs: bpy.props.BoolProperty(name="Store all bone refs on every batch (WIP)", default=False)
 
     def execute(self, context):
         from . import wmb_exporter
-        return  wmb_exporter.export(self.filepath)
+        return  wmb_exporter.export(self.filepath, self.all_bone_refs)
 

@@ -312,7 +312,7 @@ def gen_vertex_pool(sub_collection):
         child["vertex_end"] = len(position_data)
     return (position_data, uv_data, uv_layer_count, color_count, colors, normal_data, bone_data, tangents)
 
-def gen_mesh_data(sub_collection, data_pool):
+def gen_mesh_data(sub_collection, data_pool, all_bone_refs):
     arm_obj = sub_collection.collection.objects[0]
 
     print("[>] Generating mesh data... this could take a moment")
@@ -346,10 +346,12 @@ def gen_mesh_data(sub_collection, data_pool):
             batch_data.vertex_start = child["vertex_start"]
             batch_data.vertex_end = child["vertex_end"]
             batch_data.flag = child["batch_flags"]
-            for group in child.vertex_groups:
-                batch_data.required_bones.append(int(group.name[4:]))
-            batch_data.required_bones.sort()
-            
+            if not all_bone_refs:
+                for group in child.vertex_groups:
+                    batch_data.required_bones.append(int(group.name[4:]))
+                batch_data.required_bones.sort()
+            else:
+                batch_data.required_bones = list(range(48))
 
             mesh = child.data
             bm = bmesh.new()
@@ -485,11 +487,10 @@ def write_meshes(f, sub_collection, data_pool):
 
 
 
-def export(filepath):
+def export(filepath, all_bone_refs=False):
     print("- BEGIN EXPORT -")
     f = open(filepath, "wb")
     print("[>] Preparing data...")
-
 
     wmb_layer_colllection = bpy.context.view_layer.layer_collection.children['WMB']
     sub_collection = [x for x in wmb_layer_colllection.children if x.is_visible][0]
@@ -501,7 +502,7 @@ def export(filepath):
     data_pool["vtxsizeex"] = 8 # TOOD: Implement
     data_pool["bonetts"] = get_bone_index_translate_table_size(sub_collection)
     data_pool["materials"] = gen_material_data(sub_collection)
-    data_pool["meshdata"] = gen_mesh_data(sub_collection, data_pool) 
+    data_pool["meshdata"] = gen_mesh_data(sub_collection, data_pool, all_bone_refs) 
 
     create_wmb_header(f, sub_collection, data_pool)
     f.seek(128)

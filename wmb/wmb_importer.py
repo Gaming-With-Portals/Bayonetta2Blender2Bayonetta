@@ -5,31 +5,7 @@ import os
 import math
 from mathutils import Vector
 import bmesh
-
-
-
-materialSizeDictionary={
-    56:212,
-    57:212,
-    117:172,
-    58:212,
-    109:208,
-    107:208,
-    104:172,
-    178:212,
-    114:208,
-    132:228,
-    179:292,
-    187:292,
-    68:228,
-    76:172,
-    151:276,
-    135:212,
-    60:212,
-    184:212,
-    163:228
-
-}
+from .wmb_materials import materialSizeDictionary
 
 wmb_material_list = {}
 wmb_texture_list = {}
@@ -47,6 +23,9 @@ def invertGreenChannel(nodes, normal_node_pos=0):
     green_channel = invert_node.mapping.curves[1] # Second curve is for green
     green_channel.points[0].location.y = 1
     green_channel.points[1].location.y = 0
+    blue_channel = invert_node.mapping.curves[1] 
+    blue_channel.points[0].location.y = 1
+    blue_channel.points[1].location.y = 1    
     
     return invert_node
 
@@ -183,13 +162,43 @@ class WMBMaterial:
             if (os.path.isfile(os.path.join(texture_path, f"{self.sampler_1_id:0>8X}.dds"))):
                 albedo_bpy_image = bpy.data.images.load(os.path.join(texture_path, f"{self.sampler_1_id:0>8X}.dds"))
 
+        normal_bpy_image = None
+        if self.sampler_2_id in wmb_texture_list:
+            print("Texture already exists, no need to create another")
+            normal_bpy_image = wmb_texture_list[self.sampler_2_id]
+
+        else:
+            print(os.path.join(texture_path, f"{self.sampler_2_id:0>8X}.dds"))
+            if (os.path.isfile(os.path.join(texture_path, f"{self.sampler_2_id:0>8X}.dds"))):
+                normal_bpy_image = bpy.data.images.load(os.path.join(texture_path, f"{self.sampler_2_id:0>8X}.dds"))
+
+
         alb_image_node = nodes.new(type='ShaderNodeTexImage')
-        alb_image_node.location = 0,-60
+        alb_image_node.location = -100,-60
         if albedo_bpy_image is not None:
             alb_image_node.image = albedo_bpy_image
 
+        nrm_image_node = nodes.new(type='ShaderNodeTexImage')
+        nrm_image_node.location = -100,-500
+        if normal_bpy_image is not None:
+            nrm_image_node.image = normal_bpy_image
+            normalShader = nodes.new(type='ShaderNodeNormalMap')
+            normalShader.location = 0, 0
+            normalShader.hide = True
+            links.new(normalShader.outputs['Normal'], principled.inputs['Normal'])
+            invertGreen = invertGreenChannel(nodes, nrm_image_node.location[1])
+            links.new(nrm_image_node.outputs["Color"], invertGreen.inputs["Color"])
+            links.new(invertGreen.outputs["Color"], normalShader.inputs["Color"])
+            links.new(normalShader.outputs["Normal"], principled.inputs["Normal"])
+
+
+
+
         links.new(alb_image_node.outputs['Color'], principled.inputs["Base Color"])
         wmb_material_list[material_name] = mat
+
+
+
 
         mat["type"] = self.matID
         mat["flags"] = self.flags
@@ -409,7 +418,7 @@ def ImportWMB(filepath, textures=""):
 
         mesh_flags = []
         mesh_datas = []
-
+        #return
         for x in range(numMeshes):
             f.seek(offsetMeshes + mesh_offsets[x])
             current_mesh_pos = f.tell()
@@ -529,6 +538,10 @@ def ImportWMB(filepath, textures=""):
                 mod = obj.modifiers.new(name="Armature", type='ARMATURE')
                 mod.object = arm_obj
                 obj.active_material_index = 0
+
+                if (len(local_vertices) == 1):
+                    obj["empty"] = True
+                    continue
 
                 mesh.from_pydata(local_vertices, [], remapped_faces)
                 mesh.update()
