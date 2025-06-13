@@ -82,11 +82,11 @@ class eBatchData:
     def write(self, f : BufferedReader):
         f.write(struct.pack("<h", 0))
         f.write(struct.pack("<h", self.parent_mesh_id))
-        f.write(struct.pack("<H", 40961))
+        f.write(struct.pack("<H", 32769))
         f.write(struct.pack("<h", 0))
         f.write(struct.pack("<b", self.material_id))
         f.write(struct.pack("<b", 1))
-        f.write(struct.pack("<b", 1))
+        f.write(struct.pack("<b", 0))
         f.write(struct.pack("<b", 0))
         f.write(struct.pack("<I", self.vertex_start))
         f.write(struct.pack("<I", self.vertex_end))
@@ -346,10 +346,10 @@ def gen_mesh_data(sub_collection, data_pool):
             batch_data.vertex_start = child["vertex_start"]
             batch_data.vertex_end = child["vertex_end"]
             batch_data.flag = child["batch_flags"]
-            #for group in child.vertex_groups:
-            #    batch_data.required_bones.append(int(group.name[4:]))
-            for group in range(47):
-                batch_data.required_bones.append(group)
+            for group in child.vertex_groups:
+                batch_data.required_bones.append(int(group.name[4:]))
+            batch_data.required_bones.sort()
+            
 
             mesh = child.data
             bm = bmesh.new()
