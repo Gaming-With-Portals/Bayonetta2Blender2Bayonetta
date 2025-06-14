@@ -1,5 +1,6 @@
 import bpy
 import struct
+import json
 from io import BufferedReader
 import os
 import math
@@ -123,15 +124,46 @@ class WMBMaterial:
     data = 0
     sampler_1_id = 0
     sampler_2_id = 0
+    parameter_data = {}
 
     bpyMaterial = None
-    def __init__(self, file):
+    def __init__(self, file, json=None):
         self.matID = struct.unpack("<h", file.read(2))[0]
         self.flags = struct.unpack("<h", file.read(2))[0]
         datasize = materialSizeDictionary[self.matID] - 4
+        data_start = file.tell()
+        
+
+
+        if json is not None:
+            if str(self.matID) in json:
+                mat_info = json[str(self.matID)]
+                self.layout = mat_info.get(":layout", {})
+                file.seek(data_start)
+                for param_name, param_type in self.layout.items():
+                    if param_type == "sampler2D_t" or param_type == "samplerCUBE_t":
+                        self.parameter_data[param_name] = (struct.unpack("<i", file.read(4)))[0]
+                    elif param_type == "f4_float3_t":
+                        self.parameter_data[param_name] = (struct.unpack("<fff", file.read(12)))
+                        file.read(4)
+                    elif param_type == "f4_float2_t":
+                        self.parameter_data[param_name] = (struct.unpack("<ff", file.read(8)))
+                        file.read(8)
+                    elif param_type == "f4_float_t":
+                        self.parameter_data[param_name] = (struct.unpack("<f", file.read(4)))[0]
+                        file.read(12)
+                    else:
+                        self.parameter_data[param_name] = (struct.unpack("<ffff", file.read(16)))
+
+                    
+
+            else:
+                print("Material type isn't in the JSON... it may be invalid.")
+        file.seek(data_start)
         self.data = struct.unpack("<" + str(datasize // 4) + "i", file.read(materialSizeDictionary[self.matID] - 4))
         self.sampler_1_id = self.data[0]
         self.sampler_2_id = self.data[1]
+
 
     def toBPYMaterial(self, material_name, texture_path=""):
         global wmb_material_list
@@ -139,12 +171,37 @@ class WMBMaterial:
         if material_name in wmb_material_list:
             return wmb_material_list[material_name]
 
+
+
         mat = bpy.data.materials.new(material_name)
         mat.use_nodes = True
         mat.node_tree.links.clear()
         mat.node_tree.nodes.clear()
+        mat.bayo_data.type = self.matID
+        mat.bayo_data.flags = self.flags
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links
+        
+        i = 0
+        for param_name, param_type in self.layout.items():
+            mat.bayo_data.parameters.add()
+            mat.bayo_data.parameters[i].type = param_type
+            mat.bayo_data.parameters[i].name = param_name
+            if param_type == "sampler2D_t" or param_type == "samplerCUBE_t":
+                mat.bayo_data.parameters[i].value_int = self.parameter_data[param_name]
+            elif param_type == "f4_float3_t":
+                mat.bayo_data.parameters[i].value_vec3 = self.parameter_data[param_name]
+            elif param_type == "f4_float2_t":
+                mat.bayo_data.parameters[i].value_vec2 = self.parameter_data[param_name]
+            elif param_type == "f4_float_t":
+                mat.bayo_data.parameters[i].value_float = self.parameter_data[param_name]
+            else:
+                mat.bayo_data.parameters[i].value_vec4 = self.parameter_data[param_name]
+
+
+            i+=1
+            print(f"  {param_name} → {param_type}")
+
 
         output = nodes.new(type='ShaderNodeOutputMaterial')
         output.location = 1300,0
@@ -212,6 +269,16 @@ def ImportWMB(filepath, textures=""):
 
     def read_half_float(hf_bytes):
         return float(np.frombuffer(hf_bytes, dtype=np.float16)[0])
+    
+    addon_dir = os.path.dirname(os.path.abspath(__file__))
+    json_path = os.path.join(addon_dir, "..", "materials.json")
+    json_path = os.path.abspath(json_path)  # Normalize it
+    material_json = None
+    if os.path.isfile(json_path):
+        with open(json_path, "rt", encoding="utf-8") as f:
+            material_json = json.load(f)
+
+
 
     wmb_collection = bpy.data.collections.new("WMB")
     bpy.context.scene.collection.children.link(wmb_collection)
@@ -255,7 +322,7 @@ def ImportWMB(filepath, textures=""):
         materialOffsets = struct.unpack(("<" + "I"*numMaterials), f.read(4 * numMaterials))
         for x in range(numMaterials):
             f.seek(offsetMaterials + materialOffsets[x]) # not confusing at all :fire:
-            materialData = WMBMaterial(f)
+            materialData = WMBMaterial(f, material_json)
             bayonettaMaterialList.append(materialData)
 
 

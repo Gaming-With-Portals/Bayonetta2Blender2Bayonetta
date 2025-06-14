@@ -35,12 +35,17 @@ def ShowMessageBox(message = "", title = "Message Box", icon = 'INFO'):
         self.layout.alignment = 'CENTER'
     bpy.context.window_manager.popup_menu(draw, title = title, icon = icon)
 
-class MGRVector4Property(bpy.types.PropertyGroup):
+class BayonettaVector4Property(bpy.types.PropertyGroup):
     value: bpy.props.FloatVectorProperty(
         name="Vector4",
         description="A vector with 4 float values",
         size=4,
         default=(0.0, 0.0, 0.0, 0.0)
+    )
+    name: bpy.props.StringProperty(
+        name="Name",
+        description="Property Name",
+        default="None"
     )
 
 def crc32(text: str) -> int:

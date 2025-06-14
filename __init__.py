@@ -12,11 +12,19 @@ from bpy.app.handlers import persistent
 from .wmb.wmbImportOperator import ImportBayoWMB
 from .wmb.wmbImportOperator import ExportBayoWMB
 from .dat_dtt.importer.datImportOperator import ImportNierDat
-
+from .ui.material_ui import BayoMaterialPanel
+from .ui.material_ui import BayoMaterialPanelAdvanced
+from .utils.util import BayonettaVector4Property
+from .wmb.wmb_materials import BayonettaParameter
+from .wmb.wmb_materials import BayoMaterialDataProperty
 classes = (
+    BayonettaParameter,
+    BayoMaterialDataProperty,
     ImportBayoWMB,
     ImportNierDat,
-    ExportBayoWMB
+    ExportBayoWMB,
+    BayoMaterialPanel,
+    BayoMaterialPanelAdvanced
 )
 
 
@@ -33,6 +41,7 @@ def register():
 
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
+    bpy.types.Material.bayo_data = bpy.props.PointerProperty(type=BayoMaterialDataProperty)
 
 def unregister():
     for cls in classes:
@@ -40,6 +49,7 @@ def unregister():
 
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
     bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
+    del bpy.types.Material.bayo_data
 
 if __name__ == "__main__":
     register()

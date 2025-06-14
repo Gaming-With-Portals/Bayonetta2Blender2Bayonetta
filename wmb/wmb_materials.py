@@ -1,3 +1,6 @@
+import bpy
+from ..utils.util import BayonettaVector4Property
+
 materialSizeDictionary={
     0:8,
     1:8,
@@ -144,3 +147,34 @@ materialSizeDictionary={
     187:292,
     188:228
 }
+
+class BayonettaParameter(bpy.types.PropertyGroup):
+    name: bpy.props.StringProperty(name="Name", default="None")
+    type: bpy.props.StringProperty(name="Type", default="vector4")  # 'int', 'float', 'vector2', etc.
+
+    value_int: bpy.props.IntProperty(default=0)
+    value_float: bpy.props.FloatProperty(default=0.0)
+    value_vec2: bpy.props.FloatVectorProperty(size=2, default=(0.0, 0.0))
+    value_vec3: bpy.props.FloatVectorProperty(size=3, default=(0.0, 0.0, 0.0))
+    value_vec4: bpy.props.FloatVectorProperty(size=4, default=(0.0, 0.0, 0.0, 0.0))
+
+class BayoMaterialDataProperty(bpy.types.PropertyGroup):
+    type: bpy.props.IntProperty(
+        name="Material Type",
+        description="Defines Material Parameters",
+        default=-1
+    )
+
+    bayonetta_2 : bpy.props.BoolProperty(
+        name="Bayonetta 2?",
+        description="Is it a Bayonetta 2 material",
+        default=0
+    )
+    
+    flags: bpy.props.IntProperty(
+        name="Flags",
+        description="Material Flags",
+        default=0
+    )
+
+    parameters: bpy.props.CollectionProperty(type=BayonettaParameter)
