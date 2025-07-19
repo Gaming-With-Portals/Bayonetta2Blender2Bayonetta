@@ -359,7 +359,7 @@ def ImportWMB(filepath, textures=""):
                 parts_map = []
                 f.seek(offsetBoneIndexTranslateTable)
 
-                l1_table = [struct.unpack('<h', f.read(2))[0] for _ in range(16)]
+                l1_table = [struct.unpack('<H', f.read(2))[0] for _ in range(16)]
 
                 for l1_index in range(16):
                     l2_offset = l1_table[l1_index]
@@ -368,13 +368,13 @@ def ImportWMB(filepath, textures=""):
 
                     for l2_index in range(16):
                         f.seek(offsetBoneIndexTranslateTable + ((l2_offset + l2_index) * 2))
-                        l3_offset = struct.unpack('<h', f.read(2))[0]
+                        l3_offset = struct.unpack('<H', f.read(2))[0]
                         if l3_offset == 0xFFFF:
                             continue
 
                         for l3_index in range(16):
                             f.seek(offsetBoneIndexTranslateTable + ((l3_offset + l3_index) * 2))
-                            parts_index = struct.unpack('<h', f.read(2))[0]
+                            parts_index = struct.unpack('<H', f.read(2))[0]
                             if parts_index != 0xFFF:
                                 parts_no = (l1_index << 8) | (l2_index << 4) | l3_index
                                 parts_map.append((parts_no, parts_index))                            

@@ -155,7 +155,7 @@ class WMBBoneParents:
         self.bone_map = {}
         for bone in arm_obj.data.bones:
             if bone.parent:
-                self.bone_map[getLocalBoneID(bone)] = getLocalBoneID(bone)
+                self.bone_map[getLocalBoneID(bone)] = getLocalBoneID(bone.parent)
             else:
                 self.bone_map[getLocalBoneID(bone)] = -1
 
@@ -184,7 +184,7 @@ class WMBBoneIndexTranslateTable:
         for bone in arm_obj.data.bones:
             translate_table_food.append((bone["id"], getLocalBoneID(bone)))
 
-        self.data = encode_parts_index_no_table(translate_table_food)
+        self.data = encode_parts_index_no_table(sorted(translate_table_food, key = lambda x: x[1]))
         self.size = len(self.data) * 2
 
 class WMBInverseKinetic:
@@ -408,8 +408,8 @@ class WMBDataGenerator:
         # Fuck all these limp-dick tools and chicken-shit 'it works on my machine'. Fuck this 24/7 internet spew of trivia and CruelerThanDAT bullshit. Fuck patchers, fuck the media
         # fuck all of it! Bayonetta models are diseased, rotten to the core, there's no saving it -- we need to pull it out by the roots, wipe the slate clean. BURN IT DOWN!
         # And from the ashes, a new model modding tool will be born, evolved, but untamed! The weak will be purged, and the strongest will thrive -- free to mod as they see fit,
-        # they'll make modding great again! 
-        for i, bone in enumerate(arm_obj.data.bones):
+        # they'll make modding great again!
+        for i, bone in enumerate(sorted(arm_obj.data.bones, key=lambda x: x["id"])):
             local_bone_to_id_map[bone] = i
             global_name_to_local_id[bone.name] = i
             bone["read_only_local_index"] = i
