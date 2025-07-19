@@ -4,8 +4,68 @@ from collections import defaultdict
 import bmesh
 from io import BufferedReader
 from mathutils import Vector, Matrix
+import numpy as np
+
+local_bone_to_id_map = {}
+
 def align(offset, alignment):
     return offset if offset % alignment == 0 else offset + (alignment - (offset % alignment))
+
+def float_to_half_bytes(f):
+    h = np.float16(f)
+    return h.tobytes()
+
+def encode_parts_index_no_table(parts_no_index_map):
+    # Credits to Skyth
+    l1_table = [0xFFFF] * 16
+    l2_tables = []
+    l3_tables = []
+
+    l2_index_map = {}
+    l3_index_map = {}
+    l3_data = {}
+
+    for parts_no, parts_index in parts_no_index_map:
+        l1 = (parts_no >> 8) & 0xF
+        l2 = (parts_no >> 4) & 0xF
+        l3 = parts_no & 0xF
+
+        if l1 not in l2_index_map:
+            l2_index_map[l1] = len(l2_tables)
+            l2_tables.append([0xFFFF] * 16)
+
+        l2_table = l2_tables[l2_index_map[l1]]
+
+        l3_key = (l1, l2)
+        if l3_key not in l3_index_map:
+            l3_index_map[l3_key] = len(l3_tables)
+            l3_data[l3_key] = [0xFFF] * 16
+            l3_tables.append(l3_data[l3_key])
+
+        parts_indices = l3_data[l3_key]
+        if parts_indices[l3] != 0xFFF:
+            raise ValueError("{} was somehow already added to the table!".format(parts_no))
+
+        parts_indices[l3] = parts_index
+
+    l2_offset_base = 16
+    l3_offset_base = l2_offset_base + len(l2_tables) * 16
+
+    for l1, l2_idx in l2_index_map.items():
+        l1_table[l1] = l2_offset_base + l2_idx * 16
+
+    for (l1, l2), l3_idx in l3_index_map.items():
+        l2_table = l2_tables[l2_index_map[l1]]
+        l2_table[l2] = l3_offset_base + l3_idx * 16
+
+    table = l1_table
+    for l2 in l2_tables:
+        table.extend(l2)
+    for l3 in l3_tables:
+        table.extend(l3)
+
+    return table
+
 
 class WMBVertexChunk:
     def __init__(self, children):
@@ -25,17 +85,26 @@ class WMBVertexChunk:
             eval_mesh = eval_obj.to_mesh()
 
             eval_mesh.calc_tangents(uvmap=eval_mesh.uv_layers.active.name)
-            uv_loop_data = eval_mesh.uv_layers.active.data if eval_mesh.uv_layers.active else None
 
             self.total_vertices += len(eval_mesh.vertices)
             sorted_loops = sorted(eval_mesh.loops, key=lambda loop: loop.vertex_index)
+
+
+            uv_layer = eval_mesh.uv_layers.active
+            loop_map = {} 
+
+            for loop in eval_mesh.loops:
+                vidx = loop.vertex_index
+                if vidx not in loop_map:
+                    loop_map[vidx] = uv_layer.data[loop.index].uv.copy() 
+
             obj["vertex_start"] = vertex_ticker
             for vertex in eval_mesh.vertices:
                 vertex_ticker+=1
                 pos = vertex.co
                 normal = vertex.normal  # vertex normal (not loop normal)
                 
-
+                uv = loop_map.get(vertex.index, (0.0, 0.0))
                 MAX_WEIGHTS = 4
                 bone_weights = []
                 bone_indices = []
@@ -52,6 +121,9 @@ class WMBVertexChunk:
                 weights = list(weights) + [0.0] * (MAX_WEIGHTS - len(weights))
                 indices = list(indices) + [0] * (MAX_WEIGHTS - len(indices))
 
+                normal = obj.matrix_world.to_3x3() @ vertex.normal
+                normal.normalize()
+
 
                 total = sum(weights)
                 if total > 0:
@@ -59,10 +131,11 @@ class WMBVertexChunk:
 
                 vertex_info = []
                 vertex_info.append(pos.copy())
-                vertex_info.append(normal.copy())
+                vertex_info.append((normal.x, normal.z, -normal.y))
                 vertex_info.append(0)  # Tangents, you can fill this later if needed
                 vertex_info.append(tuple(indices))
                 vertex_info.append(tuple(int(w * 255) for w in weights))
+                vertex_info.append(uv.copy())
                 self.vertex_infos.append(vertex_info)
             obj["vertex_end"] = vertex_ticker
 
@@ -356,6 +429,9 @@ class WMBDataGenerator:
             if child.type != 'MESH':
                 continue
             
+        for i, bone in enumerate(arm_obj.data.bones):
+            local_bone_to_id_map[bone] = i
+
         offset_ticker = 0
         self.header_offset = 0
         self.header_size = 128
@@ -510,9 +586,19 @@ def WMB0_Write_HDR(f, generated_data : WMBDataGenerator):
 
 def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
     for data in generated_data.vertex_data.vertex_infos:
+        uv_bytes = float_to_half_bytes(data[5][0]) + float_to_half_bytes(1 - data[5][1])
         f.write(struct.pack("<fff", *data[0]))
-        f.write(struct.pack("<i", 0)) # UV
-        f.write(struct.pack("<i", 0)) # Normals
+        f.write(uv_bytes)
+
+        nx = int(round(data[1][0] * 127))
+        ny = int(round(data[1][1] * 127))
+        nz = int(round(data[1][2] * 127))
+
+        nx = max(-127, min(127, nx))
+        ny = max(-127, min(127, ny))
+        nz = max(-127, min(127, nz))
+
+        f.write(struct.pack('<4b', 0, nz, ny, nx)) # Normals
         f.write(struct.pack("<i", 0)) # Tangents
         f.write(struct.pack("<BBBB", *data[3])) # Bone Indexes
         f.write(struct.pack("<BBBB", *data[4])) # Bone Weights
