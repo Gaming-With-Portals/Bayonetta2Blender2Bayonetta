@@ -112,10 +112,9 @@ class WMBVertexChunk:
                 for g in vertex.groups:
                     group_index = g.group
                     weight = g.weight
-                    group_name = obj.vertex_groups[group_index].name
-                    bone_id = global_name_to_local_id[group_name] # Fuck you, no validation, we are raw dogging this
+                    # Group indices directly map to bone indices in the batch
                     bone_weights.append(weight)
-                    bone_indices.append(bone_id)
+                    bone_indices.append(group_index)
 
                 bone_data = sorted(zip(bone_weights, bone_indices), reverse=True)[:MAX_WEIGHTS]
                 weights, indices = zip(*bone_data) if bone_data else ([], [])
@@ -155,7 +154,7 @@ class WMBBoneParents:
         self.bone_map = {}
         for bone in arm_obj.data.bones:
             if bone.parent:
-                self.bone_map[getLocalBoneID(bone)] = getLocalBoneID(bone)
+                self.bone_map[getLocalBoneID(bone)] = getLocalBoneID(bone.parent)
             else:
                 self.bone_map[getLocalBoneID(bone)] = -1
 
@@ -184,7 +183,7 @@ class WMBBoneIndexTranslateTable:
         for bone in arm_obj.data.bones:
             translate_table_food.append((bone["id"], getLocalBoneID(bone)))
 
-        self.data = encode_parts_index_no_table(translate_table_food)
+        self.data = encode_parts_index_no_table(sorted(translate_table_food, key = lambda x: x[1]))
         self.size = len(self.data) * 2
 
 class WMBInverseKinetic:
@@ -328,24 +327,20 @@ class WMBBatch():
         self.indices = []
         for tri in mesh.loop_triangles:
             self.indices.extend([
-                tri.vertices[0] + self.vertex_start,
-                tri.vertices[1] + self.vertex_start,
+                # Winding order needs to be flipped to appear correct in game.
                 tri.vertices[2] + self.vertex_start,
+                tri.vertices[1] + self.vertex_start,
+                tri.vertices[0] + self.vertex_start,
             ])
 
         self.required_bones = []
         for group in obj.vertex_groups:
             self.has_bone_refs = 1
-            #self.required_bones.append(int(group.name[4:]))
-            bone_id = int(global_name_to_local_id[group.name]) # I pray for my downfall
-            while len(self.required_bones) <= bone_id:
-                self.required_bones.append(0)  # pad with 0s
-
-            self.required_bones[bone_id] = bone_id
+            self.required_bones.append(global_name_to_local_id[group.name])
 
     def fetch_size(self):
-        size = 256
-        size+=len(self.indices)*2
+        size = self.indice_offset
+        size += len(self.indices) * 2
 
         return size
         
@@ -376,18 +371,21 @@ class WMBMesh():
         self.batch_offset_offset = 128
         self.bounding_box_infos = 1
 
-        self.batch_start_offset = align(4 * self.batch_count, 32)
+        self.batch_start_offset = 4 * self.batch_count
         offset = self.batch_start_offset
         self.batch_offsets = []
         for batch_obj in bpy_batches:
+            offset = align(offset, 32)
             tmp_batch = WMBBatch(self, batch_obj)
             self.batches.append(tmp_batch)
             self.batch_offsets.append(offset)
-            offset+=tmp_batch.fetch_size()
+            offset += tmp_batch.fetch_size()
 
     def fetch_size(self):
-        size = self.batch_start_offset
+        size = self.batch_offset_offset
+        size += self.batch_start_offset
         for batch in self.batches:
+            size = align(size, 32)
             size += batch.fetch_size()
         return size
 
@@ -408,8 +406,8 @@ class WMBDataGenerator:
         # Fuck all these limp-dick tools and chicken-shit 'it works on my machine'. Fuck this 24/7 internet spew of trivia and CruelerThanDAT bullshit. Fuck patchers, fuck the media
         # fuck all of it! Bayonetta models are diseased, rotten to the core, there's no saving it -- we need to pull it out by the roots, wipe the slate clean. BURN IT DOWN!
         # And from the ashes, a new model modding tool will be born, evolved, but untamed! The weak will be purged, and the strongest will thrive -- free to mod as they see fit,
-        # they'll make modding great again! 
-        for i, bone in enumerate(arm_obj.data.bones):
+        # they'll make modding great again!
+        for i, bone in enumerate(sorted(arm_obj.data.bones, key=lambda x: x["id"])):
             local_bone_to_id_map[bone] = i
             global_name_to_local_id[bone.name] = i
             bone["read_only_local_index"] = i
@@ -522,6 +520,7 @@ class WMBDataGenerator:
             name_parts = obj.name.split("-")
             if (len(name_parts) == 3):
                 if (int(name_parts[2]) == 0):
+                    mesh_offset_ticker = align(mesh_offset_ticker, 32)
                     mesh_dat = WMBMesh(arm_obj, obj, offset_ticker)
                     self.mesh_blob.offsets.append(mesh_offset_ticker)
                     self.mesh_offsets.append(mesh_offset_ticker)
