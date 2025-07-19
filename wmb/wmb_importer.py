@@ -380,7 +380,7 @@ def ImportWMB(filepath, textures=""):
                                 parts_map.append((parts_no, parts_index))                            
 
                 for item in parts_map:
-                    bone_name_map[item[1]] = f"bone{item[1]:03}"
+                    bone_name_map[item[1]] = f"bone{item[0]:04}"
                     bone_id_map[item[1]] = item[0]
 
 

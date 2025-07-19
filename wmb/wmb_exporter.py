@@ -7,6 +7,7 @@ from mathutils import Vector, Matrix
 import numpy as np
 
 local_bone_to_id_map = {}
+global_name_to_local_id = {} # for those stupid ass vertex groups
 
 def align(offset, alignment):
     return offset if offset % alignment == 0 else offset + (alignment - (offset % alignment))
@@ -112,7 +113,7 @@ class WMBVertexChunk:
                     group_index = g.group
                     weight = g.weight
                     group_name = obj.vertex_groups[group_index].name
-                    bone_id = getBoneID(group_name)
+                    bone_id = global_name_to_local_id[group_name] # Fuck you, no validation, we are raw dogging this
                     bone_weights.append(weight)
                     bone_indices.append(bone_id)
 
@@ -132,7 +133,7 @@ class WMBVertexChunk:
                 vertex_info = []
                 vertex_info.append(pos.copy())
                 vertex_info.append((normal.x, normal.z, -normal.y))
-                vertex_info.append(0)  # Tangents, you can fill this later if needed
+                vertex_info.append(0)  # Tangents
                 vertex_info.append(tuple(indices))
                 vertex_info.append(tuple(int(w * 255) for w in weights))
                 vertex_info.append(uv.copy())
@@ -142,38 +143,11 @@ class WMBVertexChunk:
 def getBoneID(boneName):
     return int(boneName[4:]) # This will be important later
 
+def getLocalBoneID(bone):
+    if not bone in local_bone_to_id_map:
+        print("What the fuck, this will crash and not work in game and thank goodness because how did you do this ")
 
-
-class WMBWeightDataVertexChunk:
-        def __init__(self, children, vertexchunk : WMBVertexChunk, meshes):
-
-            self.vertex_infos = vertexchunk.vertex_infos
-            for obj in children:
-                if obj.type != 'MESH':
-                    continue
-                depsgraph = bpy.context.evaluated_depsgraph_get()
-                eval_obj = obj.evaluated_get(depsgraph)
-                eval_mesh = eval_obj.to_mesh()
-
-                current_batch = obj.name.split("-")[0]
-
-                for vertex in eval_mesh.vertices:
-                    MAX_WEIGHTS = 4
-                    bone_weights = []
-                    bone_indices = []
-                    for g in vertex.groups:
-                        group_index = g.group
-                        weight = g.weight
-                        group_name = obj.vertex_groups[group_index].name
-                        bone_id = getBoneID(group_name)
-                        bone_weights.append(weight)
-                        bone_indices.append(bone_id)
-
-                    bone_data = sorted(zip(bone_weights, bone_indices), reverse=True)[:MAX_WEIGHTS]
-                    weights, indices = zip(*bone_data) if bone_data else ([], [])
-                    weights = list(weights) + [0.0] * (MAX_WEIGHTS - len(weights))
-                    indices = list(indices) + [0] * (MAX_WEIGHTS - len(indices))
-
+    return int(local_bone_to_id_map[bone])
 
 
 class WMBBoneParents:
@@ -181,9 +155,9 @@ class WMBBoneParents:
         self.bone_map = {}
         for bone in arm_obj.data.bones:
             if bone.parent:
-                self.bone_map[getBoneID(bone.name)] = int(getBoneID(bone.parent.name))
+                self.bone_map[getLocalBoneID(bone)] = getLocalBoneID(bone)
             else:
-                self.bone_map[getBoneID(bone.name)] = -1
+                self.bone_map[getLocalBoneID(bone)] = -1
 
 class WMBBonePosition:
     def __init__(self, arm_obj):
@@ -199,17 +173,19 @@ class WMBBonePosition:
             bone_rel_pos = bone.head_local - parent_pos
             bone_abs_pos = bone.head_local
 
-            self.bone_rel_map[getBoneID(bone.name)] = (bone_rel_pos.x, bone_rel_pos.y, bone_rel_pos.z)
-            self.bone_pos_map[getBoneID(bone.name)] = (bone_abs_pos.x, bone_abs_pos.y, bone_abs_pos.z)
+            self.bone_rel_map[getLocalBoneID(bone)] = (bone_rel_pos.x, bone_rel_pos.y, bone_rel_pos.z)
+            self.bone_pos_map[getLocalBoneID(bone)] = (bone_abs_pos.x, bone_abs_pos.y, bone_abs_pos.z)
 
 
 
 class WMBBoneIndexTranslateTable:
     def __init__(self, arm_obj):
-        self.level_1 = arm_obj["translate_table_1"]
-        self.level_2 = arm_obj["translate_table_2"]
-        self.level_3 = arm_obj["translate_table_3"]
-        self.size = (len(arm_obj["translate_table_1"]) * 2) + (len(arm_obj["translate_table_2"]) * 2) + (len(arm_obj["translate_table_3"]) * 2)
+        translate_table_food = []
+        for bone in arm_obj.data.bones:
+            translate_table_food.append((bone["id"], getLocalBoneID(bone)))
+
+        self.data = encode_parts_index_no_table(translate_table_food)
+        self.size = len(self.data) * 2
 
 class WMBInverseKinetic:
     def __init__(self, arm_obj):
@@ -246,7 +222,7 @@ class WMBBoneSymmetries:
 
 
                     if abs(-pos[0] - pos_2[0]) < 0.0001:
-                        self.sym_map[getBoneID(bone.name)] = getBoneID(bone_2.name)
+                        self.sym_map[getLocalBoneID(bone)] = getLocalBoneID(bone)
 
 class WMBBoneFlags:
     def __init__(self, arm_obj):
@@ -254,15 +230,12 @@ class WMBBoneFlags:
         self.flag_map = {}
         if (arm_obj["bone_flags"]):
             bpy.context.view_layer.objects.active = arm_obj
-            bpy.ops.object.mode_set(mode='EDIT')
             self.enabled = True
-            for bone in arm_obj.data.edit_bones:
+            for bone in arm_obj.data.bones:
                 if "flags" in bone:
-                    self.flag_map[getBoneID(bone.name)] = bone["flags"]
+                    self.flag_map[getLocalBoneID(bone)] = bone["flags"]
                 else:
-                    self.flag_map[getBoneID(bone.name)] = 5
-
-            bpy.ops.object.mode_set(mode='OBJECT')
+                    self.flag_map[getLocalBoneID(bone)] = 5
 
 class WMBMaterial(): # Good enough for a direct port 
     def __init__(self):
@@ -364,7 +337,7 @@ class WMBBatch():
         for group in obj.vertex_groups:
             self.has_bone_refs = 1
             #self.required_bones.append(int(group.name[4:]))
-            bone_id = int(group.name[4:])
+            bone_id = int(global_name_to_local_id[group.name]) # I pray for my downfall
             while len(self.required_bones) <= bone_id:
                 self.required_bones.append(0)  # pad with 0s
 
@@ -429,8 +402,17 @@ class WMBDataGenerator:
             if child.type != 'MESH':
                 continue
             
+        # I do need custom local bone indexes. And global ones, wanna know why? "I have a dream." That one day, every person who uses this plugin will control their OWN armatures
+        # A land of the TRULY free, dammit, a plugin of ACTION, not documentation, ruled by CREATIVE, not edge cases. Where the code changes to suit the modder. 
+        # Not the other way around. Where power and hcoice are back where they belong, in the hands of the modders! Where every modder is free to mod, and customize, for himself!
+        # Fuck all these limp-dick tools and chicken-shit 'it works on my machine'. Fuck this 24/7 internet spew of trivia and CruelerThanDAT bullshit. Fuck patchers, fuck the media
+        # fuck all of it! Bayonetta models are diseased, rotten to the core, there's no saving it -- we need to pull it out by the roots, wipe the slate clean. BURN IT DOWN!
+        # And from the ashes, a new model modding tool will be born, evolved, but untamed! The weak will be purged, and the strongest will thrive -- free to mod as they see fit,
+        # they'll make modding great again! 
         for i, bone in enumerate(arm_obj.data.bones):
             local_bone_to_id_map[bone] = i
+            global_name_to_local_id[bone.name] = i
+            bone["read_only_local_index"] = i
 
         offset_ticker = 0
         self.header_offset = 0
@@ -634,12 +616,8 @@ def WMB0_Write_Positions_Abs(f, generated_data : WMBDataGenerator):
 
 
 def WMB0_Write_BoneIndexTranslateTable(f, generated_data : WMBDataGenerator):
-    for i in generated_data.bone_index_translate_table.level_1:
-        f.write(struct.pack("<h", i))
-    for i in generated_data.bone_index_translate_table.level_2:
-        f.write(struct.pack("<h", i))
-    for i in generated_data.bone_index_translate_table.level_3:
-        f.write(struct.pack("<h", i))
+    for i in generated_data.bone_index_translate_table.data:
+        f.write(struct.pack("<H", i))
 
 def WMB0_Write_IK(f, generated_data : WMBDataGenerator):
     if (generated_data.bone_inverse_kinetic_table.enabled):
