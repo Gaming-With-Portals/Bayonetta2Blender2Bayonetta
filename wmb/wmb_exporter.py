@@ -112,10 +112,9 @@ class WMBVertexChunk:
                 for g in vertex.groups:
                     group_index = g.group
                     weight = g.weight
-                    group_name = obj.vertex_groups[group_index].name
-                    bone_id = global_name_to_local_id[group_name] # Fuck you, no validation, we are raw dogging this
+                    # Group indices directly map to bone indices in the batch
                     bone_weights.append(weight)
-                    bone_indices.append(bone_id)
+                    bone_indices.append(group_index)
 
                 bone_data = sorted(zip(bone_weights, bone_indices), reverse=True)[:MAX_WEIGHTS]
                 weights, indices = zip(*bone_data) if bone_data else ([], [])
@@ -328,20 +327,16 @@ class WMBBatch():
         self.indices = []
         for tri in mesh.loop_triangles:
             self.indices.extend([
-                tri.vertices[0] + self.vertex_start,
-                tri.vertices[1] + self.vertex_start,
+                # Winding order needs to be flipped to appear correct in game.
                 tri.vertices[2] + self.vertex_start,
+                tri.vertices[1] + self.vertex_start,
+                tri.vertices[0] + self.vertex_start,
             ])
 
         self.required_bones = []
         for group in obj.vertex_groups:
             self.has_bone_refs = 1
-            #self.required_bones.append(int(group.name[4:]))
-            bone_id = int(global_name_to_local_id[group.name]) # I pray for my downfall
-            while len(self.required_bones) <= bone_id:
-                self.required_bones.append(0)  # pad with 0s
-
-            self.required_bones[bone_id] = bone_id
+            self.required_bones.append(global_name_to_local_id[group.name])
 
     def fetch_size(self):
         size = 256
