@@ -317,6 +317,8 @@ def ImportWMB(filepath, textures=""):
 
         wmb_collection.children.link(model_collection)
 
+
+
         f.seek(offsetMaterialsOffsets)
         bayonettaMaterialList = []
         materialOffsets = struct.unpack(("<" + "I"*numMaterials), f.read(4 * numMaterials))
@@ -325,6 +327,12 @@ def ImportWMB(filepath, textures=""):
             materialData = WMBMaterial(f, material_json)
             bayonettaMaterialList.append(materialData)
 
+
+        flag_map = {}
+        if (offsetBoneFlags != 0):
+            f.seek(offsetBoneFlags)
+            for i in range(numBones):
+                flag_map[i] = struct.unpack("<B", f.read(1))[0]
 
         # build skel
         if numBones > 0:
@@ -346,9 +354,37 @@ def ImportWMB(filepath, textures=""):
 
             # Bullshit bone remap thing, check later
             bone_name_map = {}
+            bone_id_map = {}
             if offsetBoneIndexTranslateTable:
+                parts_map = []
                 f.seek(offsetBoneIndexTranslateTable)
 
+                l1_table = [struct.unpack('<h', f.read(2))[0] for _ in range(16)]
+
+                for l1_index in range(16):
+                    l2_offset = l1_table[l1_index]
+                    if l2_offset == 0xFFFF:
+                        continue
+
+                    for l2_index in range(16):
+                        f.seek(offsetBoneIndexTranslateTable + ((l2_offset + l2_index) * 2))
+                        l3_offset = struct.unpack('<h', f.read(2))[0]
+                        if l3_offset == 0xFFFF:
+                            continue
+
+                        for l3_index in range(16):
+                            f.seek(offsetBoneIndexTranslateTable + ((l3_offset + l3_index) * 2))
+                            parts_index = struct.unpack('<h', f.read(2))[0]
+                            if parts_index != 0xFFF:
+                                parts_no = (l1_index << 8) | (l2_index << 4) | l3_index
+                                parts_map.append((parts_no, parts_index))                            
+
+                for item in parts_map:
+                    bone_name_map[item[1]] = f"bone{item[1]:03}"
+                    bone_id_map[item[1]] = item[0]
+
+
+                f.seek(offsetBoneIndexTranslateTable) # TODO, nuke from orbit
                 # first level
                 first_level = [struct.unpack('<h', f.read(2))[0] for _ in range(16)]
                 j = sum(1 for val in first_level if val != -1 and val != 4095)
@@ -361,20 +397,21 @@ def ImportWMB(filepath, textures=""):
                 third_level = [struct.unpack('<h', f.read(2))[0] for _ in range(k * 16)]
                 arm_obj["translate_table_3"] = third_level
                 arm_obj["translate_table_size"] = f.tell() - offsetBoneIndexTranslateTable
-                # build a list of (global_bone_index, table_index) from third_level
-                for table_index, bone_id in enumerate(third_level):
-                    if bone_id not in (-1, 4095) and 0 <= bone_id < numBones:
-                        bone_name_map[bone_id] = f"bone{bone_id:03}"
+
                         
             print(bone_name_map)
             edit_bones = {}
             for i in range(numBones):
                 bone_name = bone_name_map.get(i, f"bone{i:03}")
+                bone_id = bone_id_map.get(i, -1)
                 bone = arm_data.edit_bones.new(bone_name)
                 raw = bone_abs_positions[i]
                 converted = Vector((raw.x, -raw.z, raw.y))
                 bone.head = converted
                 bone.tail = bone.head + Vector((0.0, 0.05, 0.0))
+                if (offsetBoneFlags != 0):
+                    bone["flags"] = flag_map[i]
+                bone["id"] = bone_id
                 edit_bones[i] = bone
 
             for i, parent_index in enumerate(bone_parents):
@@ -389,6 +426,30 @@ def ImportWMB(filepath, textures=""):
 
         def bone_group_name(bone_id):
             return bone_name_map.get(bone_id, f"bone{bone_id:03}")
+
+        arm_obj["bone_flags"] = False
+        if (offsetBoneFlags != 0):
+            arm_obj["bone_flags"] = True
+
+        arm_obj["bone_symmetries"] = False
+        if (offsetBoneSymmetries != 0):
+            arm_obj["bone_symmetries"] = True
+
+        arm_obj["inverse_kinematics"] = False
+        if (offsetInverseKinematics != 0):
+            arm_obj["inverse_kinematics"] = True
+            f.seek(offsetInverseKinematics)
+            kincount = struct.unpack("<b", f.read(1))[0]
+            other_data = struct.unpack("<bbb", f.read(3))
+            offset = struct.unpack("<i", f.read(4))[0]
+            arm_obj["ik_count"] = kincount
+            arm_obj["ik_offset"] = offset
+            arm_obj["ik_unk"] = other_data
+            f.seek(offsetInverseKinematics + offset)
+            for i in range(kincount):
+                structure = struct.unpack("<" + ("b" * 16), f.read(16))
+                arm_obj["ik_structure_" + str(i)] = structure
+
 
 
         # Read vertex positions separately if offset_positions is non-zero
@@ -567,7 +628,7 @@ def ImportWMB(filepath, textures=""):
         for mesh_name, batch_faces_list, batch_bone_maps, batch_starts, mesh_index in mesh_batches:
             for batch_index, batch_faces in enumerate(batch_faces_list, 1):
                 object_name = f"{mesh_index}-{mesh_name}-{batch_index - 1}" # MGR2Blender style
-
+                print(f"[>] Importing {object_name}")
                 used_indices = sorted(set(i for tri in batch_faces[0] for i in tri))
                 index_remap = {old_idx: new_idx for new_idx, old_idx in enumerate(used_indices)}
                 local_vertices = [vertices[i] for i in used_indices]
