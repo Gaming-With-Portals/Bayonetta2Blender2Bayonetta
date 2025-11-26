@@ -68,7 +68,7 @@ def encode_parts_index_no_table(parts_no_index_map):
 
 
 class WMBVertexChunk:
-    def __init__(self, children):
+    def __init__(self, children, ref_table):
         self.vertex_infos = []
         self.exvertex_infos = []
         self.total_vertices = 0
@@ -79,6 +79,8 @@ class WMBVertexChunk:
         for obj in children:
             if obj.type != 'MESH':
                 continue
+            ref_table[obj.name] = {}
+            bone_counter = 0
 
             depsgraph = bpy.context.evaluated_depsgraph_get()
             eval_obj = obj.evaluated_get(depsgraph)
@@ -112,29 +114,59 @@ class WMBVertexChunk:
                     group_index = g.group
                     weight = g.weight
                     group_name = obj.vertex_groups[group_index].name
-                    bone_id = getBoneID(group_name)
+                    bone_id = 0
+
+                    if (getBoneID(group_name) in ref_table[obj.name]):
+                        bone_id = ref_table[obj.name][getBoneID(group_name)]
+                    else:
+                        bone_id = bone_counter
+                        ref_table[obj.name][getBoneID(group_name)] = bone_counter
+                        bone_counter+=1
+
+                    
                     bone_weights.append(weight)
                     bone_indices.append(bone_id)
 
-                bone_data = sorted(zip(bone_weights, bone_indices), reverse=True)[:MAX_WEIGHTS]
-                weights, indices = zip(*bone_data) if bone_data else ([], [])
-                weights = list(weights) + [0.0] * (MAX_WEIGHTS - len(weights))
-                indices = list(indices) + [0] * (MAX_WEIGHTS - len(indices))
+                pairs = list(zip(bone_weights, bone_indices))
+                pairs = sorted(pairs, key=lambda p: p[0], reverse=True)[:MAX_WEIGHTS]
 
-                normal = obj.matrix_world.to_3x3() @ vertex.normal
-                normal.normalize()
+                float_weights = [p[0] for p in pairs]
+                sel_indices = [p[1] for p in pairs]
 
-
-                total = sum(weights)
+                total = sum(float_weights)
                 if total > 0:
-                    weights = [w / total for w in weights]
+                    float_weights = [w / total for w in float_weights]
+                else:
+                    float_weights = [0.0] * len(float_weights)
+
+                while len(float_weights) < MAX_WEIGHTS:
+                    float_weights.append(0.0)
+                    sel_indices.append(0)
+
+                int_weights = [int(w * 255.0) for w in float_weights]
+
+                rem = 255 - sum(int_weights)
+                if rem != 0:
+                    order = sorted(range(MAX_WEIGHTS), key=lambda i: float_weights[i], reverse=True)
+                    i = 0
+                    while rem != 0:
+                        idx = order[i]
+                        if rem > 0 and int_weights[idx] < 255:
+                            int_weights[idx] += 1
+                            rem -= 1
+                        elif rem < 0 and int_weights[idx] > 0:
+                            int_weights[idx] -= 1
+                            rem += 1
+                        i = (i + 1) % MAX_WEIGHTS
+
+                int_weights = [max(0, min(255, w)) for w in int_weights]
 
                 vertex_info = []
                 vertex_info.append(pos.copy())
                 vertex_info.append((normal.x, normal.z, -normal.y))
-                vertex_info.append(0)  # Tangents, you can fill this later if needed
-                vertex_info.append(tuple(indices))
-                vertex_info.append(tuple(int(w * 255) for w in weights))
+                vertex_info.append(0)  # Tangents, TODO
+                vertex_info.append(tuple(sel_indices))
+                vertex_info.append(tuple(int_weights))
                 vertex_info.append(uv.copy())
                 self.vertex_infos.append(vertex_info)
             obj["vertex_end"] = vertex_ticker
@@ -172,6 +204,7 @@ class WMBWeightDataVertexChunk:
                     bone_data = sorted(zip(bone_weights, bone_indices), reverse=True)[:MAX_WEIGHTS]
                     weights, indices = zip(*bone_data) if bone_data else ([], [])
                     weights = list(weights) + [0.0] * (MAX_WEIGHTS - len(weights))
+                    
                     indices = list(indices) + [0] * (MAX_WEIGHTS - len(indices))
 
 
@@ -332,7 +365,7 @@ class WMBMeshBlob():
                     self.mesh_count+=1
 
 class WMBBatch():
-    def __init__(self, parent, obj):
+    def __init__(self, parent, obj, bone_ref_table):
         self.batch_idx = 0
         self.id = parent.mesh_id
         self.flags = 32769
@@ -343,7 +376,8 @@ class WMBBatch():
         self.vertex_end = obj["vertex_end"]
         self.primitive_type = 4
         self.indice_offset = 128
-
+        
+        batch_ref_table = bone_ref_table[obj.name]
 
         mesh = obj.data
         bm = bmesh.new()
@@ -360,15 +394,19 @@ class WMBBatch():
                 tri.vertices[2] + self.vertex_start,
             ])
 
+        self.has_bone_refs = 1
         self.required_bones = []
-        for group in obj.vertex_groups:
+        for global_id, local_id in sorted(batch_ref_table.items(), key=lambda x: x[1]):
+            self.required_bones.append(global_id)
+
+        '''for group in obj.vertex_groups:
             self.has_bone_refs = 1
             #self.required_bones.append(int(group.name[4:]))
             bone_id = int(group.name[4:])
             while len(self.required_bones) <= bone_id:
                 self.required_bones.append(0)  # pad with 0s
 
-            self.required_bones[bone_id] = bone_id
+            self.required_bones[bone_id] = bone_id'''
 
     def fetch_size(self):
         size = 256
@@ -379,7 +417,7 @@ class WMBBatch():
 
 
 class WMBMesh():
-    def __init__(self, arm_obj, obj, ofticker):
+    def __init__(self, arm_obj, obj, bone_ref_table):
         name_parts = obj.name.split("-")
         self.name = name_parts[1]
         self.exdata = obj["data"]
@@ -407,7 +445,7 @@ class WMBMesh():
         offset = self.batch_start_offset
         self.batch_offsets = []
         for batch_obj in bpy_batches:
-            tmp_batch = WMBBatch(self, batch_obj)
+            tmp_batch = WMBBatch(self, batch_obj, bone_ref_table)
             self.batches.append(tmp_batch)
             self.batch_offsets.append(offset)
             offset+=tmp_batch.fetch_size()
@@ -445,9 +483,11 @@ class WMBDataGenerator:
         offset_ticker += self.header_size
         offset_ticker = align(offset_ticker, 32)
 
+        bone_reference_dictionary = {}
+
         ## -- VERTEX CHUNK A --
         self.offset_vertexes = offset_ticker
-        self.vertex_data = WMBVertexChunk(arm_obj.children)
+        self.vertex_data = WMBVertexChunk(arm_obj.children, bone_reference_dictionary)
         offset_ticker += self.vertex_data.total_vertices * 32
         offset_ticker = align(offset_ticker, 32)
 
@@ -533,20 +573,20 @@ class WMBDataGenerator:
         self.mesh_offsets = []
 
         mesh_offset_ticker = 0
-        
+
         for obj in arm_obj.children:
             if obj.type != 'MESH':
                 continue
             name_parts = obj.name.split("-")
             if (len(name_parts) == 3):
                 if (int(name_parts[2]) == 0):
-                    mesh_dat = WMBMesh(arm_obj, obj, offset_ticker)
+                    mesh_dat = WMBMesh(arm_obj, obj, bone_reference_dictionary)
                     self.mesh_blob.offsets.append(mesh_offset_ticker)
                     self.mesh_offsets.append(mesh_offset_ticker)
                     self.meshes.append(mesh_dat)
                     mesh_offset_ticker+=mesh_dat.fetch_size()
 
-        
+        print(bone_reference_dictionary)
 
 
 def WMB0_Write_HDR(f, generated_data : WMBDataGenerator):
@@ -602,6 +642,8 @@ def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
         f.write(struct.pack("<i", 0)) # Tangents
         f.write(struct.pack("<BBBB", *data[3])) # Bone Indexes
         f.write(struct.pack("<BBBB", *data[4])) # Bone Weights
+
+
     f.seek(generated_data.offset_ex_vertexes)
     for data in generated_data.vertex_data.exvertex_infos:
         f.write(struct.pack("<bbbb", *data[0]))
