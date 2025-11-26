@@ -103,10 +103,10 @@ class WMBVertexChunk:
                 if vidx not in tangent_map:
                     tangent = loop.tangent
                     normal = loop.normal
-                    bitangent = loop.bitangent
-                    s = tangent.cross(normal).dot(bitangent)
 
-                    tangent_map[vidx] = (tangent.x, tangent.y, tangent.z, s)
+
+                    sign = 128 * (loop.bitangent < 0)
+                    tangent_map[vidx] = (tangent.x, tangent.y, tangent.z, sign)
 
 
 
@@ -400,11 +400,18 @@ class WMBBatch():
         bm.free()
         mesh.calc_loop_triangles()
         self.indices = []
-        for tri in mesh.loop_triangles:
+        '''for tri in mesh.loop_triangles:
             self.indices.extend([
                 tri.vertices[0] + self.vertex_start,
                 tri.vertices[1] + self.vertex_start,
                 tri.vertices[2] + self.vertex_start,
+            ])'''
+        
+        for tri in mesh.loop_triangles:
+            self.indices.extend([
+                tri.vertices[0] + self.vertex_start,
+                tri.vertices[2] + self.vertex_start,
+                tri.vertices[1] + self.vertex_start,
             ])
 
         self.has_bone_refs = 1
