@@ -94,11 +94,21 @@ class WMBVertexChunk:
 
             uv_layer = eval_mesh.uv_layers.active
             loop_map = {} 
+            tangent_map = {}
 
             for loop in eval_mesh.loops:
                 vidx = loop.vertex_index
                 if vidx not in loop_map:
                     loop_map[vidx] = uv_layer.data[loop.index].uv.copy() 
+                if vidx not in tangent_map:
+                    tangent = loop.tangent
+                    normal = loop.normal
+                    bitangent = loop.bitangent
+                    s = tangent.cross(normal).dot(bitangent)
+
+                    tangent_map[vidx] = (tangent.x, tangent.y, tangent.z, s)
+
+
 
             obj["vertex_start"] = vertex_ticker
             for vertex in eval_mesh.vertices:
@@ -164,7 +174,10 @@ class WMBVertexChunk:
                 vertex_info = []
                 vertex_info.append(pos.copy())
                 vertex_info.append((normal.x, normal.z, -normal.y))
-                vertex_info.append(0)  # Tangents, TODO
+
+                tangent_info = tangent_map.get(vertex.index, (0.0, 0.0, 0.0, 1.0))
+
+                vertex_info.append(tangent_info)
                 vertex_info.append(tuple(sel_indices))
                 vertex_info.append(tuple(int_weights))
                 vertex_info.append(uv.copy())
@@ -624,6 +637,9 @@ def WMB0_Write_HDR(f, generated_data : WMBDataGenerator):
     f.write(struct.pack("<I", generated_data.offset_bone_sym))
     f.write(struct.pack("<I", generated_data.offset_bone_flags))
 
+def pack_tangent(v):
+    return max(0, min(255, int((v * 0.5 + 0.5) * 255)))
+
 def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
     for data in generated_data.vertex_data.vertex_infos:
         uv_bytes = float_to_half_bytes(data[5][0]) + float_to_half_bytes(1 - data[5][1])
@@ -638,8 +654,17 @@ def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
         ny = max(-127, min(127, ny))
         nz = max(-127, min(127, nz))
 
-        f.write(struct.pack('<4b', 0, nz, ny, nx)) # Normals
-        f.write(struct.pack("<i", 0)) # Tangents
+        tx, ty, tz, d = data[2]
+        tangent_bytes = bytes([
+            pack_tangent(tx),
+            pack_tangent(ty),
+            pack_tangent(tz),
+            pack_tangent(d)
+        ])
+        
+
+        f.write(struct.pack('<4b', 0, ny, -nz, nx)) # Normals
+        f.write(tangent_bytes)
         f.write(struct.pack("<BBBB", *data[3])) # Bone Indexes
         f.write(struct.pack("<BBBB", *data[4])) # Bone Weights
 
