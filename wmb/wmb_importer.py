@@ -629,6 +629,7 @@ def ImportWMB(filepath, textures=""):
             for batch_index, batch_faces in enumerate(batch_faces_list, 1):
                 object_name = f"{mesh_index}-{mesh_name}-{batch_index - 1}" # MGR2Blender style
                 print(f"[>] Importing {object_name}")
+                print(batch_faces)
                 used_indices = sorted(set(i for tri in batch_faces[0] for i in tri))
                 index_remap = {old_idx: new_idx for new_idx, old_idx in enumerate(used_indices)}
                 local_vertices = [vertices[i] for i in used_indices]

@@ -79,12 +79,17 @@ class WMBVertexChunk:
         for obj in children:
             if obj.type != 'MESH':
                 continue
+            
+            print(f"[>] Generating vertex data for {obj.name}")
+
             ref_table[obj.name] = {}
             bone_counter = 0
 
             depsgraph = bpy.context.evaluated_depsgraph_get()
             eval_obj = obj.evaluated_get(depsgraph)
             eval_mesh = eval_obj.to_mesh()
+
+            eval_mesh.calc_tangents(uvmap=eval_mesh.uv_layers.active.name)
 
             eval_mesh.calc_tangents(uvmap=eval_mesh.uv_layers.active.name)
 
@@ -100,6 +105,10 @@ class WMBVertexChunk:
                 vidx = loop.vertex_index
                 if vidx not in loop_map:
                     loop_map[vidx] = uv_layer.data[loop.index].uv.copy() 
+                    #uv = uv_layer.data[loop.index].uv
+                    #uv = (float(uv[0]), float(uv[1]))
+                    #loop_map[vidx] = uv
+
                 if vidx not in tangent_map:
                     tangent = loop.tangent
                     normal = loop.normal
@@ -116,7 +125,7 @@ class WMBVertexChunk:
                 pos = vertex.co
                 normal = vertex.normal  # vertex normal (not loop normal)
                 
-                uv = loop_map.get(vertex.index, (0.0, 0.0))
+                uv = loop_map.get(vertex.index, Vector((0.0, 0.0)))
                 MAX_WEIGHTS = 4
                 bone_weights = []
                 bone_indices = []
@@ -181,6 +190,7 @@ class WMBVertexChunk:
                 vertex_info.append(tuple(sel_indices))
                 vertex_info.append(tuple(int_weights))
                 vertex_info.append(uv.copy())
+                #vertex_info.append((uv[0], uv[1]))
                 self.vertex_infos.append(vertex_info)
             obj["vertex_end"] = vertex_ticker
 
@@ -342,7 +352,17 @@ class WMBMaterialBlob:
 
         sorted_mats = sorted(unique_mats, key=lambda m: int(m.name.rsplit("_", 1)[-1]))
 
+        last_id = -1
+        last_mat = None
+
         for mat in sorted_mats:
+            mat_id = int(mat.name.rsplit("_", 1)[-1])
+
+            while last_id + 1 < mat_id:
+                if last_material:
+                    self.materials.append(last_material)
+                last_id += 1
+
             emat = WMBMaterial()
             emat.id = int(mat.name.rsplit("_", 1)[-1])
             emat.size = int(mat["size"])
@@ -350,6 +370,9 @@ class WMBMaterialBlob:
             emat.type = int(mat["type"])
             emat.data = mat["data"]
             self.materials.append(emat)
+
+            last_id = mat_id
+            last_material = emat
 
         self.material_count = len(self.materials)
 
@@ -594,12 +617,15 @@ class WMBDataGenerator:
 
         mesh_offset_ticker = 0
 
-        for obj in arm_obj.children:
-            if obj.type != 'MESH':
-                continue
+        sorted_children = sorted(
+            (c for c in arm_obj.children if c.type == 'MESH'),
+            key=lambda obj: int(obj.name.split("-")[0])
+        )
+
+        for obj in sorted_children:
             name_parts = obj.name.split("-")
-            if (len(name_parts) == 3):
-                if (int(name_parts[2]) == 0):
+            if len(name_parts) == 3:
+                if int(name_parts[2]) == 0:
                     mesh_dat = WMBMesh(arm_obj, obj, bone_reference_dictionary)
                     self.mesh_blob.offsets.append(mesh_offset_ticker)
                     self.mesh_offsets.append(mesh_offset_ticker)
