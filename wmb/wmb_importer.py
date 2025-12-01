@@ -124,10 +124,10 @@ class WMBMaterial:
     data = 0
     sampler_1_id = 0
     sampler_2_id = 0
-    parameter_data = {}
 
     bpyMaterial = None
     def __init__(self, file, json=None):
+        self.parameter_data = {}
         self.matID = struct.unpack("<h", file.read(2))[0]
         self.flags = struct.unpack("<h", file.read(2))[0]
         datasize = materialSizeDictionary[self.matID] - 4
@@ -177,6 +177,7 @@ class WMBMaterial:
         mat.use_nodes = True
         mat.node_tree.links.clear()
         mat.node_tree.nodes.clear()
+        mat.bayo_data.parameters.clear()
         mat.bayo_data.type = self.matID
         mat.bayo_data.flags = self.flags
         nodes = mat.node_tree.nodes

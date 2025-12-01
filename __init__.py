@@ -14,6 +14,7 @@ from .wmb.wmbImportOperator import ExportBayoWMB
 from .dat_dtt.importer.datImportOperator import ImportNierDat
 from .ui.material_ui import BayoMaterialPanel
 from .ui.material_ui import BayoMaterialPanelAdvanced
+from .ui.material_ui import BayoMaterialToJSON, BayoJSONToMaterial
 from .utils.util import BayonettaVector4Property
 from .wmb.wmb_materials import BayonettaParameter
 from .wmb.wmb_materials import BayoMaterialDataProperty
@@ -24,7 +25,9 @@ classes = (
     ImportNierDat,
     ExportBayoWMB,
     BayoMaterialPanel,
-    BayoMaterialPanelAdvanced
+    BayoMaterialPanelAdvanced,
+    BayoMaterialToJSON,
+    BayoJSONToMaterial
 )
 
 

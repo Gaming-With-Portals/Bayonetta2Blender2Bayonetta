@@ -5,6 +5,7 @@ import bmesh
 from io import BufferedReader
 from mathutils import Vector, Matrix
 import numpy as np
+from .wmb_materials import materialSizeDictionary
 
 local_bone_to_id_map = {}
 
@@ -326,6 +327,7 @@ class WMBMaterial(): # Good enough for a direct port
         self.flag = 0
         self.size = 0
         self.type = 0
+        self.formal_data = []
         self.data = []
 
     def fetch_size(self):
@@ -334,8 +336,27 @@ class WMBMaterial(): # Good enough for a direct port
     def write(self, f):
         f.write(struct.pack("<H", self.type))
         f.write(struct.pack("<H", self.flag))
-        for i in self.data: # Write raw data
-            f.write(struct.pack("<i", i))
+        for data in self.formal_data:
+            data_fmt = data.type
+            if (data_fmt == "sampler2D_t" or data_fmt == "samplerCUBE_t"):
+                f.write(struct.pack("<i", data.value_int))
+            elif (data_fmt == "f4_float3_t"):
+                f.write(struct.pack("<fff", *data.value_vec3))
+                f.write(struct.pack("<f", -1))
+            elif (data_fmt == "f4_float2_t"):
+                f.write(struct.pack("<ff", *data.value_vec2))
+                f.write(struct.pack("<f", -1))
+                f.write(struct.pack("<f", -1))
+            elif (data_fmt == "f4_float_t"):
+                f.write(struct.pack("<f", data.value_float))
+                f.write(struct.pack("<f", -1))
+                f.write(struct.pack("<f", -1))
+                f.write(struct.pack("<f", -1))
+            else:
+                f.write(struct.pack("<ffff", *data.value_vec4))
+
+        #for i in self.data: # Write raw data
+        #    f.write(struct.pack("<i", i))
 
 
 class WMBMaterialBlob:
@@ -365,10 +386,11 @@ class WMBMaterialBlob:
 
             emat = WMBMaterial()
             emat.id = int(mat.name.rsplit("_", 1)[-1])
-            emat.size = int(mat["size"])
-            emat.flag = int(mat["flags"])
-            emat.type = int(mat["type"])
+            emat.size = materialSizeDictionary[mat.bayo_data.type]
+            emat.flag = mat.bayo_data.flags
+            emat.type = mat.bayo_data.type
             emat.data = mat["data"]
+            emat.formal_data = mat.bayo_data.parameters
             self.materials.append(emat)
 
             last_id = mat_id
