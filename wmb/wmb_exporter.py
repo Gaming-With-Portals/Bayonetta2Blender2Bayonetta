@@ -399,10 +399,6 @@ class WMBBatch():
         self.vertex_start = obj["vertex_start"]
         self.vertex_end = obj["vertex_end"]
         self.primitive_type = 4
-        if (USE_LARGE_BONES):
-            self.indice_offset = 256
-        else:
-            self.indice_offset = 128
 
 
         self.unknownE1 = obj["unknownE1"]
@@ -445,6 +441,12 @@ class WMBBatch():
                 self.required_bones.append(0)  # pad with 0s
 
             self.required_bones[bone_id] = bone_id'''
+        
+
+        if (USE_LARGE_BONES):
+            self.indice_offset = align(0x40 + 0x8 + len(self.required_bones) * 2, 0x80) # Batch Header Size + Large Bones Header + UShorts
+        else:
+            self.indice_offset = align(0x40 + 0x4 + len(self.required_bones), 0x80) # Batch Header Size + Bone Table + UBytes
 
     def fetch_size(self):
         size = 256
