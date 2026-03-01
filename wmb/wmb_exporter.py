@@ -484,18 +484,21 @@ class WMBMesh():
         self.batch_offset_offset = 128
         self.bounding_box_infos = 1
 
-        self.batch_start_offset = align(4 * self.batch_count, 32)
+        self.batch_start_offset = 4 * self.batch_count
         offset = self.batch_start_offset
         self.batch_offsets = []
         for batch_obj in bpy_batches:
+            offset = align(offset, 32)
             tmp_batch = WMBBatch(self, batch_obj, bone_ref_table)
             self.batches.append(tmp_batch)
             self.batch_offsets.append(offset)
             offset+=tmp_batch.fetch_size()
 
     def fetch_size(self):
-        size = self.batch_start_offset
+        size = self.batch_offset_offset
+        size += self.batch_start_offset
         for batch in self.batches:
+            size = align(size, 32)
             size += batch.fetch_size()
         return size
 
@@ -640,13 +643,12 @@ class WMBDataGenerator:
             name_parts = obj.name.split("-")
             if len(name_parts) == 3:
                 if int(name_parts[2]) == 0:
+                    mesh_offset_ticker = align(mesh_offset_ticker, 32)
                     mesh_dat = WMBMesh(arm_obj, obj, bone_reference_dictionary)
                     self.mesh_blob.offsets.append(mesh_offset_ticker)
                     self.mesh_offsets.append(mesh_offset_ticker)
                     self.meshes.append(mesh_dat)
                     mesh_offset_ticker+=mesh_dat.fetch_size()
-
-        print(bone_reference_dictionary)
 
 
 def WMB0_Write_HDR(f, generated_data : WMBDataGenerator):
