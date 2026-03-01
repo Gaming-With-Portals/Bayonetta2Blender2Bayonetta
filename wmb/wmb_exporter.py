@@ -390,6 +390,11 @@ class WMBMeshBlob():
 
 class WMBBatch():
     def __init__(self, parent, obj, bone_ref_table):
+        if ("dummy" in obj):
+            self.is_dummy = obj["dummy"]
+        else:
+            self.is_dummy = False
+
         self.batch_idx = 0
         self.id = parent.mesh_id
         self.flags = obj["batch_flags"]
@@ -403,7 +408,6 @@ class WMBBatch():
             self.vertex_end = obj["vertex_end"]
         
         self.primitive_type = 4
-        self.indice_offset = 128
         self.unknownE1 = obj["unknownE1"]
         self.unknownE2 = obj["unknownE2"]
         
@@ -429,12 +433,20 @@ class WMBBatch():
                 tri.vertices[2] + self.vertex_start,
             ])'''
         
-        for tri in mesh.loop_triangles:
+        if (self.is_dummy):
+            tri = mesh.loop_triangles[0]
             self.indices.extend([
                 tri.vertices[0] + self.vertex_start,
                 tri.vertices[2] + self.vertex_start,
                 tri.vertices[1] + self.vertex_start,
             ])
+        else:
+            for tri in mesh.loop_triangles:
+                self.indices.extend([
+                    tri.vertices[0] + self.vertex_start,
+                    tri.vertices[2] + self.vertex_start,
+                    tri.vertices[1] + self.vertex_start,
+                ])
         
 
         self.has_bone_refs = 1
@@ -451,8 +463,15 @@ class WMBBatch():
 
             self.required_bones[bone_id] = bone_id'''
 
+        if (USE_LARGE_BONES):
+            self.indice_offset = align(0x40 + 0x8 + len(self.required_bones) * 2, 0x80)
+        else:
+            self.indice_offset = align(0x40 + 0x4 + len(self.required_bones), 0x80)
+
+
+
     def fetch_size(self):
-        size = 256
+        size = self.indice_offset
         size+=len(self.indices)*2
 
         return size
