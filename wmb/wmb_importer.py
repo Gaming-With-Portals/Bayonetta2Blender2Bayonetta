@@ -7,6 +7,7 @@ import math
 from mathutils import Vector
 import bmesh
 from .wmb_materials import materialSizeDictionary
+from .wmb_bone_names import getBoneName
 
 wmb_material_list = {}
 wmb_texture_list = {}
@@ -265,7 +266,7 @@ class WMBMaterial:
         
         return mat
     
-def ImportWMB(filepath, textures=""):
+def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes):
     import numpy as np
 
     def read_half_float(hf_bytes):
@@ -360,7 +361,7 @@ def ImportWMB(filepath, textures=""):
                 parts_map = []
                 f.seek(offsetBoneIndexTranslateTable)
 
-                l1_table = [struct.unpack('<h', f.read(2))[0] for _ in range(16)]
+                l1_table = [struct.unpack('<H', f.read(2))[0] for _ in range(16)]
 
                 for l1_index in range(16):
                     l2_offset = l1_table[l1_index]
@@ -369,19 +370,20 @@ def ImportWMB(filepath, textures=""):
 
                     for l2_index in range(16):
                         f.seek(offsetBoneIndexTranslateTable + ((l2_offset + l2_index) * 2))
-                        l3_offset = struct.unpack('<h', f.read(2))[0]
+                        l3_offset = struct.unpack('<H', f.read(2))[0]
                         if l3_offset == 0xFFFF:
                             continue
 
                         for l3_index in range(16):
                             f.seek(offsetBoneIndexTranslateTable + ((l3_offset + l3_index) * 2))
-                            parts_index = struct.unpack('<h', f.read(2))[0]
+                            parts_index = struct.unpack('<H', f.read(2))[0]
                             if parts_index != 0xFFF:
                                 parts_no = (l1_index << 8) | (l2_index << 4) | l3_index
                                 parts_map.append((parts_no, parts_index))                            
 
                 for item in parts_map:
-                    bone_name_map[item[1]] = f"bone{item[1]:03}"
+                    #bone_name_map[item[1]] = f"bone{item[1]:03}"
+                    bone_name_map[item[1]] = getBoneName(item[1], item[0], use_custom_bone_names)
                     bone_id_map[item[1]] = item[0]
 
 
@@ -655,6 +657,8 @@ def ImportWMB(filepath, textures=""):
                 mesh = bpy.data.meshes.new(object_name)
 
                 obj = bpy.data.objects.new(object_name, mesh)
+
+                obj["dummy"] = False
                 obj["flags"] = mesh_flags[mesh_index]
                 obj["batch_flags"] = batch_faces[1].flags
 
@@ -735,5 +739,10 @@ def ImportWMB(filepath, textures=""):
                 if "Col" in mesh.vertex_colors:
                     mesh.vertex_colors.active = mesh.vertex_colors["Col"]
                 bm.free()
+
+                if (batch_faces[1].unknownE1 == 32 and batch_faces[1].unknownE2 == 15):
+                    obj.hide_set(hide_shadow_meshes)
+
+
     return {'FINISHED'}
 

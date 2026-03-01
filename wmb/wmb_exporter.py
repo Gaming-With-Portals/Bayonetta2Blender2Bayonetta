@@ -6,8 +6,12 @@ from io import BufferedReader
 from mathutils import Vector, Matrix
 import numpy as np
 from .wmb_materials import materialSizeDictionary
+from .wmb_custom_bones import encode_parts_index_no_table as GenerateTranslateTable
 
-local_bone_to_id_map = {}
+GENERATE_TRANSLATE_TABLE = True
+USE_LARGE_BONES = False
+
+bone_name_to_id_map = {}
 
 def align(offset, alignment):
     return offset if offset % alignment == 0 else offset + (alignment - (offset % alignment))
@@ -16,56 +20,6 @@ def float_to_half_bytes(f):
     h = np.float16(f)
     return h.tobytes()
 
-def encode_parts_index_no_table(parts_no_index_map):
-    # Credits to Skyth
-    l1_table = [0xFFFF] * 16
-    l2_tables = []
-    l3_tables = []
-
-    l2_index_map = {}
-    l3_index_map = {}
-    l3_data = {}
-
-    for parts_no, parts_index in parts_no_index_map:
-        l1 = (parts_no >> 8) & 0xF
-        l2 = (parts_no >> 4) & 0xF
-        l3 = parts_no & 0xF
-
-        if l1 not in l2_index_map:
-            l2_index_map[l1] = len(l2_tables)
-            l2_tables.append([0xFFFF] * 16)
-
-        l2_table = l2_tables[l2_index_map[l1]]
-
-        l3_key = (l1, l2)
-        if l3_key not in l3_index_map:
-            l3_index_map[l3_key] = len(l3_tables)
-            l3_data[l3_key] = [0xFFF] * 16
-            l3_tables.append(l3_data[l3_key])
-
-        parts_indices = l3_data[l3_key]
-        if parts_indices[l3] != 0xFFF:
-            raise ValueError("{} was somehow already added to the table!".format(parts_no))
-
-        parts_indices[l3] = parts_index
-
-    l2_offset_base = 16
-    l3_offset_base = l2_offset_base + len(l2_tables) * 16
-
-    for l1, l2_idx in l2_index_map.items():
-        l1_table[l1] = l2_offset_base + l2_idx * 16
-
-    for (l1, l2), l3_idx in l3_index_map.items():
-        l2_table = l2_tables[l2_index_map[l1]]
-        l2_table[l2] = l3_offset_base + l3_idx * 16
-
-    table = l1_table
-    for l2 in l2_tables:
-        table.extend(l2)
-    for l3 in l3_tables:
-        table.extend(l3)
-
-    return table
 
 
 class WMBVertexChunk:
@@ -195,7 +149,9 @@ class WMBVertexChunk:
             obj["vertex_end"] = vertex_ticker
 
 def getBoneID(boneName):
-    return int(boneName[4:]) # This will be important later
+    return bone_name_to_id_map[boneName] # later is now, and this is important!
+
+    #return int(boneName[4:]) # This will be important later
 
 
 
@@ -262,10 +218,21 @@ class WMBBonePosition:
 
 class WMBBoneIndexTranslateTable:
     def __init__(self, arm_obj):
-        self.level_1 = arm_obj["translate_table_1"]
-        self.level_2 = arm_obj["translate_table_2"]
-        self.level_3 = arm_obj["translate_table_3"]
-        self.size = (len(arm_obj["translate_table_1"]) * 2) + (len(arm_obj["translate_table_2"]) * 2) + (len(arm_obj["translate_table_3"]) * 2)
+        if (GENERATE_TRANSLATE_TABLE):
+            translate_table_food = []
+
+            for bone in sorted(arm_obj.data.bones, key=lambda x: x["id"]):
+                translate_table_food.append((bone["id"], getBoneID(bone.name)))
+
+
+            self.data = GenerateTranslateTable(translate_table_food)
+            self.size = len(self.data) * 2
+
+        else:
+            self.level_1 = arm_obj["translate_table_1"]
+            self.level_2 = arm_obj["translate_table_2"]
+            self.level_3 = arm_obj["translate_table_3"]
+            self.size = (len(arm_obj["translate_table_1"]) * 2) + (len(arm_obj["translate_table_2"]) * 2) + (len(arm_obj["translate_table_3"]) * 2)
 
 class WMBInverseKinetic:
     def __init__(self, arm_obj):
@@ -430,9 +397,18 @@ class WMBBatch():
         self.material_id = int(obj.material_slots[0].name.rsplit("_", 1)[-1])
         self.has_bone_refs = 0
         self.vertex_start = obj["vertex_start"]
-        self.vertex_end = obj["vertex_end"]
+        if (self.is_dummy):
+            self.vertex_end = obj["vertex_start"]+3
+        else:
+            self.vertex_end = obj["vertex_end"]
+        
         self.primitive_type = 4
         self.indice_offset = 128
+        self.unknownE1 = obj["unknownE1"]
+        self.unknownE2 = obj["unknownE2"]
+        
+        batch_ref_table = bone_ref_table[obj.name]
+
         self.unknownE1 = obj["unknownE1"]
         self.unknownE2 = obj["unknownE2"]
         
@@ -459,6 +435,7 @@ class WMBBatch():
                 tri.vertices[2] + self.vertex_start,
                 tri.vertices[1] + self.vertex_start,
             ])
+        
 
         self.has_bone_refs = 1
         self.required_bones = []
@@ -533,8 +510,22 @@ class WMBDataGenerator:
             if child.type != 'MESH':
                 continue
             
-        for i, bone in enumerate(arm_obj.data.bones):
-            local_bone_to_id_map[bone] = i
+
+        # make up some shi
+        current_highest_id = 0
+        for bone in arm_obj.data.bones:
+            if "id" in bone:
+                if bone["id"] > current_highest_id:
+                    current_highest_id = bone["id"] + 1
+
+        for bone in arm_obj.data.bones:
+            if "id" not in bone:
+                bone["id"] = current_highest_id
+                current_highest_id+=1 
+
+
+        for i, bone in enumerate(sorted(arm_obj.data.bones, key=lambda x: x["id"])):
+            bone_name_to_id_map[bone.name] = i # Come up with some ids for local bones, these can be entirely arbitrary
 
         offset_ticker = 0
         self.header_offset = 0
@@ -757,12 +748,17 @@ def WMB0_Write_Positions_Abs(f, generated_data : WMBDataGenerator):
 
 
 def WMB0_Write_BoneIndexTranslateTable(f, generated_data : WMBDataGenerator):
-    for i in generated_data.bone_index_translate_table.level_1:
-        f.write(struct.pack("<h", i))
-    for i in generated_data.bone_index_translate_table.level_2:
-        f.write(struct.pack("<h", i))
-    for i in generated_data.bone_index_translate_table.level_3:
-        f.write(struct.pack("<h", i))
+    if (GENERATE_TRANSLATE_TABLE):
+        for i in generated_data.bone_index_translate_table.data:
+            f.write(struct.pack("<H", i))
+
+    else:
+        for i in generated_data.bone_index_translate_table.level_1:
+            f.write(struct.pack("<h", i))
+        for i in generated_data.bone_index_translate_table.level_2:
+            f.write(struct.pack("<h", i))
+        for i in generated_data.bone_index_translate_table.level_3:
+            f.write(struct.pack("<h", i))
 
 def WMB0_Write_IK(f, generated_data : WMBDataGenerator):
     if (generated_data.bone_inverse_kinetic_table.enabled):
@@ -847,16 +843,29 @@ def WMB0_Write_Mesh_Data(f, generated_data : WMBDataGenerator):
             f.write(struct.pack("<I", 0))
             f.write(struct.pack("<IIIIIII", 0, 0, 0, 0, 0, 0, 0))
             f.write(struct.pack("<I", len(batch.required_bones)))
-            for i in batch.required_bones:
-                f.write(struct.pack("<B", i))
+
+            if (USE_LARGE_BONES):
+                f.write(struct.pack("<i", -1))
+                for i in batch.required_bones:
+                    f.write(struct.pack("<H", i))
+
+            else:
+                for i in batch.required_bones:
+                    f.write(struct.pack("<B", i))
 
             f.seek(batch_offset + batch.indice_offset)
             for indice in batch.indices:
                 f.write(struct.pack("<H", indice))
 
 
+def export(filepath, all_bone_refs=False, btt=True, large_bones=False):
+    global GENERATE_TRANSLATE_TABLE
+    global USE_LARGE_BONES
 
-def export(filepath, all_bone_refs=False):
+
+    USE_LARGE_BONES = large_bones
+    GENERATE_TRANSLATE_TABLE = btt
+
     print("- BEGIN EXPORT -")
     f = open(filepath, "wb")
     print("[>] Preparing data...")
