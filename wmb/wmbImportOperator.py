@@ -25,9 +25,10 @@ class ExportBayoWMB(bpy.types.Operator, ExportHelper):
     filename_ext = ".wmb"
     filter_glob: StringProperty(default="*.wmb", options={'HIDDEN'})
 
-    all_bone_refs: bpy.props.BoolProperty(name="Store all bone refs on every batch (WIP)", default=False)
+    btt: bpy.props.BoolProperty(name="Generate Bone Index Translate Table", default=False)
+    large_bone: bpy.props.BoolProperty(name="Use Skyth's Large Bone Patch", default=False)
 
     def execute(self, context):
         from . import wmb_exporter
-        return  wmb_exporter.export(self.filepath, self.all_bone_refs)
+        return  wmb_exporter.export(self.filepath, False, self.btt, self.large_bone)
 

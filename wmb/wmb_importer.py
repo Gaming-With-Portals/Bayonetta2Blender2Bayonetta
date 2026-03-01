@@ -124,10 +124,10 @@ class WMBMaterial:
     data = 0
     sampler_1_id = 0
     sampler_2_id = 0
-    parameter_data = {}
 
     bpyMaterial = None
     def __init__(self, file, json=None):
+        self.parameter_data = {}
         self.matID = struct.unpack("<h", file.read(2))[0]
         self.flags = struct.unpack("<h", file.read(2))[0]
         datasize = materialSizeDictionary[self.matID] - 4
@@ -177,6 +177,7 @@ class WMBMaterial:
         mat.use_nodes = True
         mat.node_tree.links.clear()
         mat.node_tree.nodes.clear()
+        mat.bayo_data.parameters.clear()
         mat.bayo_data.type = self.matID
         mat.bayo_data.flags = self.flags
         nodes = mat.node_tree.nodes
@@ -359,7 +360,7 @@ def ImportWMB(filepath, textures=""):
                 parts_map = []
                 f.seek(offsetBoneIndexTranslateTable)
 
-                l1_table = [struct.unpack('<H', f.read(2))[0] for _ in range(16)]
+                l1_table = [struct.unpack('<h', f.read(2))[0] for _ in range(16)]
 
                 for l1_index in range(16):
                     l2_offset = l1_table[l1_index]
@@ -368,19 +369,19 @@ def ImportWMB(filepath, textures=""):
 
                     for l2_index in range(16):
                         f.seek(offsetBoneIndexTranslateTable + ((l2_offset + l2_index) * 2))
-                        l3_offset = struct.unpack('<H', f.read(2))[0]
+                        l3_offset = struct.unpack('<h', f.read(2))[0]
                         if l3_offset == 0xFFFF:
                             continue
 
                         for l3_index in range(16):
                             f.seek(offsetBoneIndexTranslateTable + ((l3_offset + l3_index) * 2))
-                            parts_index = struct.unpack('<H', f.read(2))[0]
+                            parts_index = struct.unpack('<h', f.read(2))[0]
                             if parts_index != 0xFFF:
                                 parts_no = (l1_index << 8) | (l2_index << 4) | l3_index
                                 parts_map.append((parts_no, parts_index))                            
 
                 for item in parts_map:
-                    bone_name_map[item[1]] = f"bone{item[0]:04}"
+                    bone_name_map[item[1]] = f"bone{item[1]:03}"
                     bone_id_map[item[1]] = item[0]
 
 
@@ -427,29 +428,28 @@ def ImportWMB(filepath, textures=""):
         def bone_group_name(bone_id):
             return bone_name_map.get(bone_id, f"bone{bone_id:03}")
 
-        if (arm_obj is not None):
-            arm_obj["bone_flags"] = False
-            if (offsetBoneFlags != 0):
-                arm_obj["bone_flags"] = True
+        arm_obj["bone_flags"] = False
+        if (offsetBoneFlags != 0):
+            arm_obj["bone_flags"] = True
 
-            arm_obj["bone_symmetries"] = False
-            if (offsetBoneSymmetries != 0):
-                arm_obj["bone_symmetries"] = True
+        arm_obj["bone_symmetries"] = False
+        if (offsetBoneSymmetries != 0):
+            arm_obj["bone_symmetries"] = True
 
-            arm_obj["inverse_kinematics"] = False
-            if (offsetInverseKinematics != 0):
-                arm_obj["inverse_kinematics"] = True
-                f.seek(offsetInverseKinematics)
-                kincount = struct.unpack("<b", f.read(1))[0]
-                other_data = struct.unpack("<bbb", f.read(3))
-                offset = struct.unpack("<i", f.read(4))[0]
-                arm_obj["ik_count"] = kincount
-                arm_obj["ik_offset"] = offset
-                arm_obj["ik_unk"] = other_data
-                f.seek(offsetInverseKinematics + offset)
-                for i in range(kincount):
-                    structure = struct.unpack("<" + ("b" * 16), f.read(16))
-                    arm_obj["ik_structure_" + str(i)] = structure
+        arm_obj["inverse_kinematics"] = False
+        if (offsetInverseKinematics != 0):
+            arm_obj["inverse_kinematics"] = True
+            f.seek(offsetInverseKinematics)
+            kincount = struct.unpack("<b", f.read(1))[0]
+            other_data = struct.unpack("<bbb", f.read(3))
+            offset = struct.unpack("<i", f.read(4))[0]
+            arm_obj["ik_count"] = kincount
+            arm_obj["ik_offset"] = offset
+            arm_obj["ik_unk"] = other_data
+            f.seek(offsetInverseKinematics + offset)
+            for i in range(kincount):
+                structure = struct.unpack("<" + ("b" * 16), f.read(16))
+                arm_obj["ik_structure_" + str(i)] = structure
 
 
 
@@ -630,6 +630,7 @@ def ImportWMB(filepath, textures=""):
             for batch_index, batch_faces in enumerate(batch_faces_list, 1):
                 object_name = f"{mesh_index}-{mesh_name}-{batch_index - 1}" # MGR2Blender style
                 print(f"[>] Importing {object_name}")
+                print(batch_faces)
                 used_indices = sorted(set(i for tri in batch_faces[0] for i in tri))
                 index_remap = {old_idx: new_idx for new_idx, old_idx in enumerate(used_indices)}
                 local_vertices = [vertices[i] for i in used_indices]
@@ -656,6 +657,10 @@ def ImportWMB(filepath, textures=""):
                 obj = bpy.data.objects.new(object_name, mesh)
                 obj["flags"] = mesh_flags[mesh_index]
                 obj["batch_flags"] = batch_faces[1].flags
+
+                obj["unknownE1"] = batch_faces[1].unknownE1
+                obj["unknownE2"] = batch_faces[1].unknownE2
+
                 obj["data"] = mesh_datas[mesh_index]
                 obj["vertex_start"] = batch_faces[1].vertexStart
                 obj["vertex_end"] = batch_faces[1].vertexEnd

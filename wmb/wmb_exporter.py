@@ -100,7 +100,6 @@ def getLocalBoneID(bone):
 
     return int(local_bone_to_id_map[bone])
 
-    return int(local_bone_to_id_map[bone])
 
 
 class WMBBoneParents:
@@ -138,9 +137,9 @@ class WMBBoneIndexTranslateTable:
         if (GENERATE_BONE_INDEX_TRANSLATE_TABLE):
             print("[>] Generating bone index translate table data...")
             translate_table_food = []
-            for bone in arm_obj.data.bones:
-                translate_table_food.append((bone["id"], getLocalBoneID(bone)))
-
+            for bone in sorted(arm_obj.data.bones, key=lambda x: x["id"]):
+                translate_table_food.append((int(bone["id"]), local_bone_to_id_map[bone]))
+            print(translate_table_food)
             self.data = encode_parts_index_no_table(sorted(translate_table_food, key = lambda x: x[1]))
             self.size = len(self.data) * 2
         else:
@@ -373,6 +372,7 @@ class WMBDataGenerator:
         # - Senator Armstrong (probably), 2013
         for i, bone in enumerate(sorted(arm_obj.data.bones, key=lambda x: x["id"])):
             local_bone_to_id_map[bone] = i
+            global_name_to_local_id[bone.name] = i
             bone["read_only_local_index"] = i
 
 
@@ -682,7 +682,9 @@ def WMB0_Write_Mesh_Data(f, generated_data : WMBDataGenerator):
 
 
 
-def export(filepath, all_bone_refs=False):
+def export(filepath, all_bone_refs=False, btt=True, large_bones=False):
+    GENERATE_BONE_INDEX_TRANSLATE_TABLE = btt
+
     print("- BEGIN EXPORT -")
     f = open(filepath, "wb")
     print("[>] Preparing data...")
