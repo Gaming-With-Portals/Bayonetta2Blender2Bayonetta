@@ -427,28 +427,29 @@ def ImportWMB(filepath, textures=""):
         def bone_group_name(bone_id):
             return bone_name_map.get(bone_id, f"bone{bone_id:03}")
 
-        arm_obj["bone_flags"] = False
-        if (offsetBoneFlags != 0):
-            arm_obj["bone_flags"] = True
+        if (arm_obj is not None):
+            arm_obj["bone_flags"] = False
+            if (offsetBoneFlags != 0):
+                arm_obj["bone_flags"] = True
 
-        arm_obj["bone_symmetries"] = False
-        if (offsetBoneSymmetries != 0):
-            arm_obj["bone_symmetries"] = True
+            arm_obj["bone_symmetries"] = False
+            if (offsetBoneSymmetries != 0):
+                arm_obj["bone_symmetries"] = True
 
-        arm_obj["inverse_kinematics"] = False
-        if (offsetInverseKinematics != 0):
-            arm_obj["inverse_kinematics"] = True
-            f.seek(offsetInverseKinematics)
-            kincount = struct.unpack("<b", f.read(1))[0]
-            other_data = struct.unpack("<bbb", f.read(3))
-            offset = struct.unpack("<i", f.read(4))[0]
-            arm_obj["ik_count"] = kincount
-            arm_obj["ik_offset"] = offset
-            arm_obj["ik_unk"] = other_data
-            f.seek(offsetInverseKinematics + offset)
-            for i in range(kincount):
-                structure = struct.unpack("<" + ("b" * 16), f.read(16))
-                arm_obj["ik_structure_" + str(i)] = structure
+            arm_obj["inverse_kinematics"] = False
+            if (offsetInverseKinematics != 0):
+                arm_obj["inverse_kinematics"] = True
+                f.seek(offsetInverseKinematics)
+                kincount = struct.unpack("<b", f.read(1))[0]
+                other_data = struct.unpack("<bbb", f.read(3))
+                offset = struct.unpack("<i", f.read(4))[0]
+                arm_obj["ik_count"] = kincount
+                arm_obj["ik_offset"] = offset
+                arm_obj["ik_unk"] = other_data
+                f.seek(offsetInverseKinematics + offset)
+                for i in range(kincount):
+                    structure = struct.unpack("<" + ("b" * 16), f.read(16))
+                    arm_obj["ik_structure_" + str(i)] = structure
 
 
 

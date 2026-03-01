@@ -189,7 +189,7 @@ class DeleteLooseGeometryAll(bpy.types.Operator):
 
 class RipMeshByUVIslands(bpy.types.Operator):
     """Rip Mesh by UV Islands"""
-    bl_idname = "b2n.ripmeshbyuvislands"
+    bl_idname = "b2b.ripmeshbyuvislands"
     bl_label = "Rip Mesh by UV Islands"
     bl_options = {'REGISTER', 'UNDO'}
 

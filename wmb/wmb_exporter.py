@@ -5,9 +5,13 @@ import bmesh
 from io import BufferedReader
 from mathutils import Vector, Matrix
 import numpy as np
+from .wmb_materials import materialSizeDictionary
+from .wmb_custom_bones import encode_parts_index_no_table
 
 local_bone_to_id_map = {}
 global_name_to_local_id = {} # for those stupid ass vertex groups
+
+GENERATE_BONE_INDEX_TRANSLATE_TABLE = True
 
 def align(offset, alignment):
     return offset if offset % alignment == 0 else offset + (alignment - (offset % alignment))
@@ -15,58 +19,6 @@ def align(offset, alignment):
 def float_to_half_bytes(f):
     h = np.float16(f)
     return h.tobytes()
-
-def encode_parts_index_no_table(parts_no_index_map):
-    # Credits to Skyth
-    l1_table = [0xFFFF] * 16
-    l2_tables = []
-    l3_tables = []
-
-    l2_index_map = {}
-    l3_index_map = {}
-    l3_data = {}
-
-    for parts_no, parts_index in parts_no_index_map:
-        l1 = (parts_no >> 8) & 0xF
-        l2 = (parts_no >> 4) & 0xF
-        l3 = parts_no & 0xF
-
-        if l1 not in l2_index_map:
-            l2_index_map[l1] = len(l2_tables)
-            l2_tables.append([0xFFFF] * 16)
-
-        l2_table = l2_tables[l2_index_map[l1]]
-
-        l3_key = (l1, l2)
-        if l3_key not in l3_index_map:
-            l3_index_map[l3_key] = len(l3_tables)
-            l3_data[l3_key] = [0xFFF] * 16
-            l3_tables.append(l3_data[l3_key])
-
-        parts_indices = l3_data[l3_key]
-        if parts_indices[l3] != 0xFFF:
-            raise ValueError("{} was somehow already added to the table!".format(parts_no))
-
-        parts_indices[l3] = parts_index
-
-    l2_offset_base = 16
-    l3_offset_base = l2_offset_base + len(l2_tables) * 16
-
-    for l1, l2_idx in l2_index_map.items():
-        l1_table[l1] = l2_offset_base + l2_idx * 16
-
-    for (l1, l2), l3_idx in l3_index_map.items():
-        l2_table = l2_tables[l2_index_map[l1]]
-        l2_table[l2] = l3_offset_base + l3_idx * 16
-
-    table = l1_table
-    for l2 in l2_tables:
-        table.extend(l2)
-    for l3 in l3_tables:
-        table.extend(l3)
-
-    return table
-
 
 class WMBVertexChunk:
     def __init__(self, children):
@@ -148,6 +100,8 @@ def getLocalBoneID(bone):
 
     return int(local_bone_to_id_map[bone])
 
+    return int(local_bone_to_id_map[bone])
+
 
 class WMBBoneParents:
     def __init__(self, arm_obj):
@@ -179,12 +133,21 @@ class WMBBonePosition:
 
 class WMBBoneIndexTranslateTable:
     def __init__(self, arm_obj):
-        translate_table_food = []
-        for bone in arm_obj.data.bones:
-            translate_table_food.append((bone["id"], getLocalBoneID(bone)))
 
-        self.data = encode_parts_index_no_table(sorted(translate_table_food, key = lambda x: x[1]))
-        self.size = len(self.data) * 2
+
+        if (GENERATE_BONE_INDEX_TRANSLATE_TABLE):
+            print("[>] Generating bone index translate table data...")
+            translate_table_food = []
+            for bone in arm_obj.data.bones:
+                translate_table_food.append((bone["id"], getLocalBoneID(bone)))
+
+            self.data = encode_parts_index_no_table(sorted(translate_table_food, key = lambda x: x[1]))
+            self.size = len(self.data) * 2
+        else:
+            self.level_1 = arm_obj["translate_table_1"]
+            self.level_2 = arm_obj["translate_table_2"]
+            self.level_3 = arm_obj["translate_table_3"]
+            self.size = (len(arm_obj["translate_table_1"]) * 2) + (len(arm_obj["translate_table_2"]) * 2) + (len(arm_obj["translate_table_3"]) * 2)
 
 class WMBInverseKinetic:
     def __init__(self, arm_obj):
@@ -399,18 +362,19 @@ class WMBDataGenerator:
         for child in arm_obj.children:
             if child.type != 'MESH':
                 continue
-            
+
+
         # I do need custom local bone indexes. And global ones, wanna know why? "I have a dream." That one day, every person who uses this plugin will control their OWN armatures
         # A land of the TRULY free, dammit, a plugin of ACTION, not documentation, ruled by CREATIVE, not edge cases. Where the code changes to suit the modder. 
         # Not the other way around. Where power and hcoice are back where they belong, in the hands of the modders! Where every modder is free to mod, and customize, for himself!
         # Fuck all these limp-dick tools and chicken-shit 'it works on my machine'. Fuck this 24/7 internet spew of trivia and CruelerThanDAT bullshit. Fuck patchers, fuck the media
         # fuck all of it! Bayonetta models are diseased, rotten to the core, there's no saving it -- we need to pull it out by the roots, wipe the slate clean. BURN IT DOWN!
-        # And from the ashes, a new model modding tool will be born, evolved, but untamed! The weak will be purged, and the strongest will thrive -- free to mod as they see fit,
-        # they'll make modding great again!
+        # And from the ashes, a new model modding tool will be born, evolved, but untamed! The weak will be purged, and the strongest will thrive -- free to mod as they see fit,    
+        # - Senator Armstrong (probably), 2013
         for i, bone in enumerate(sorted(arm_obj.data.bones, key=lambda x: x["id"])):
             local_bone_to_id_map[bone] = i
-            global_name_to_local_id[bone.name] = i
             bone["read_only_local_index"] = i
+
 
         offset_ticker = 0
         self.header_offset = 0
@@ -615,8 +579,16 @@ def WMB0_Write_Positions_Abs(f, generated_data : WMBDataGenerator):
 
 
 def WMB0_Write_BoneIndexTranslateTable(f, generated_data : WMBDataGenerator):
-    for i in generated_data.bone_index_translate_table.data:
-        f.write(struct.pack("<H", i))
+    if (GENERATE_BONE_INDEX_TRANSLATE_TABLE):
+        for i in generated_data.bone_index_translate_table.data:
+            f.write(struct.pack("<H", i))
+    else:
+        for i in generated_data.bone_index_translate_table.level_1:
+            f.write(struct.pack("<h", i))
+        for i in generated_data.bone_index_translate_table.level_2:
+            f.write(struct.pack("<h", i))
+        for i in generated_data.bone_index_translate_table.level_3:
+            f.write(struct.pack("<h", i))
 
 def WMB0_Write_IK(f, generated_data : WMBDataGenerator):
     if (generated_data.bone_inverse_kinetic_table.enabled):
