@@ -7,6 +7,7 @@ import math
 from mathutils import Vector
 import bmesh
 from .wmb_materials import materialSizeDictionary
+from .wmb_bone_names import getBoneName
 
 wmb_material_list = {}
 wmb_texture_list = {}
@@ -265,7 +266,7 @@ class WMBMaterial:
         
         return mat
     
-def ImportWMB(filepath, textures=""):
+def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes):
     import numpy as np
 
     def read_half_float(hf_bytes):
@@ -381,7 +382,8 @@ def ImportWMB(filepath, textures=""):
                                 parts_map.append((parts_no, parts_index))                            
 
                 for item in parts_map:
-                    bone_name_map[item[1]] = f"bone{item[1]:03}"
+                    #bone_name_map[item[1]] = f"bone{item[1]:03}"
+                    bone_name_map[item[1]] = getBoneName(item[1], item[0], use_custom_bone_names)
                     bone_id_map[item[1]] = item[0]
 
 
@@ -655,12 +657,13 @@ def ImportWMB(filepath, textures=""):
                 mesh = bpy.data.meshes.new(object_name)
 
                 obj = bpy.data.objects.new(object_name, mesh)
+
+                obj["dummy"] = False
                 obj["flags"] = mesh_flags[mesh_index]
                 obj["batch_flags"] = batch_faces[1].flags
 
                 obj["unknownE1"] = batch_faces[1].unknownE1
                 obj["unknownE2"] = batch_faces[1].unknownE2
-
                 obj["data"] = mesh_datas[mesh_index]
                 obj["vertex_start"] = batch_faces[1].vertexStart
                 obj["vertex_end"] = batch_faces[1].vertexEnd
@@ -735,5 +738,10 @@ def ImportWMB(filepath, textures=""):
                 if "Col" in mesh.vertex_colors:
                     mesh.vertex_colors.active = mesh.vertex_colors["Col"]
                 bm.free()
+
+                if (batch_faces[1].unknownE1 == 32 and batch_faces[1].unknownE2 == 15):
+                    obj.hide_set(hide_shadow_meshes)
+
+
     return {'FINISHED'}
 

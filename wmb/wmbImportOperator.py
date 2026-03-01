@@ -11,11 +11,13 @@ class ImportBayoWMB(bpy.types.Operator, ExportHelper):
     filename_ext = ".wmb"
     filter_glob: StringProperty(default="*.wmb", options={'HIDDEN'})
 
-    reset_blend: bpy.props.BoolProperty(name="Reset Blender Scene on Import", default=True)
+    #reset_blend: bpy.props.BoolProperty(name="Reset Blender Scene on Import", default=True)
+    bone_names: bpy.props.BoolProperty(name="Use Custom Bone Names", default=True)
+    shadow_meshes: bpy.props.BoolProperty(name="Hide Shadow Meshes", default=True)
 
     def execute(self, context):
         from . import wmb_importer
-        return  wmb_importer.ImportWMB(self.filepath)
+        return  wmb_importer.ImportWMB(self.filepath, "", self.bone_names, self.shadow_meshes)
     
 class ExportBayoWMB(bpy.types.Operator, ExportHelper):
     '''Export WMB Data.'''

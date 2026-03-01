@@ -390,6 +390,12 @@ class WMBMeshBlob():
 
 class WMBBatch():
     def __init__(self, parent, obj, bone_ref_table):
+        self.is_dummy = False
+        if ("dummy" in obj):
+            if (obj["dummy"]):
+                self.is_dummy = True
+
+
         self.batch_idx = 0
         self.id = parent.mesh_id
         self.flags = obj["batch_flags"]
@@ -397,7 +403,11 @@ class WMBBatch():
         self.material_id = int(obj.material_slots[0].name.rsplit("_", 1)[-1])
         self.has_bone_refs = 0
         self.vertex_start = obj["vertex_start"]
-        self.vertex_end = obj["vertex_end"]
+        if (self.is_dummy):
+            self.vertex_end = obj["vertex_start"]+3
+        else:
+            self.vertex_end = obj["vertex_end"]
+        
         self.primitive_type = 4
 
 
@@ -421,17 +431,28 @@ class WMBBatch():
                 tri.vertices[2] + self.vertex_start,
             ])'''
         
-        for tri in mesh.loop_triangles:
+        if (not self.is_dummy):
+            for tri in mesh.loop_triangles:
+                self.indices.extend([
+                    tri.vertices[0] + self.vertex_start,
+                    tri.vertices[2] + self.vertex_start,
+                    tri.vertices[1] + self.vertex_start,
+                ])
+        else:
+            tri = mesh.loop_triangles[0]
             self.indices.extend([
                 tri.vertices[0] + self.vertex_start,
                 tri.vertices[2] + self.vertex_start,
                 tri.vertices[1] + self.vertex_start,
             ])
+        
 
         self.has_bone_refs = 1
         self.required_bones = []
         for global_id, local_id in sorted(batch_ref_table.items(), key=lambda x: x[1]):
             self.required_bones.append(global_id)
+
+
 
         '''for group in obj.vertex_groups:
             self.has_bone_refs = 1
