@@ -88,9 +88,8 @@ class WMBVertexChunk:
 
             depsgraph = bpy.context.evaluated_depsgraph_get()
             eval_obj = obj.evaluated_get(depsgraph)
+            
             eval_mesh = eval_obj.to_mesh()
-
-            eval_mesh.calc_tangents(uvmap=eval_mesh.uv_layers.active.name)
 
             eval_mesh.calc_tangents(uvmap=eval_mesh.uv_layers.active.name)
 
@@ -426,7 +425,7 @@ class WMBBatch():
     def __init__(self, parent, obj, bone_ref_table):
         self.batch_idx = 0
         self.id = parent.mesh_id
-        self.flags = 32769
+        self.flags = obj["batch_flags"]
         self.exmaterial_id = 0
         self.material_id = int(obj.material_slots[0].name.rsplit("_", 1)[-1])
         self.has_bone_refs = 0
@@ -434,6 +433,8 @@ class WMBBatch():
         self.vertex_end = obj["vertex_end"]
         self.primitive_type = 4
         self.indice_offset = 128
+        self.unknownE1 = obj["unknownE1"]
+        self.unknownE2 = obj["unknownE2"]
         
         batch_ref_table = bone_ref_table[obj.name]
 
@@ -836,8 +837,8 @@ def WMB0_Write_Mesh_Data(f, generated_data : WMBDataGenerator):
             f.write(struct.pack("<h", batch.exmaterial_id))
             f.write(struct.pack("<B", batch.material_id))
             f.write(struct.pack("<B", batch.has_bone_refs))
-            f.write(struct.pack("<b", 0))
-            f.write(struct.pack("<b", 0))
+            f.write(struct.pack("<b", batch.unknownE1))
+            f.write(struct.pack("<b", batch.unknownE2))
             f.write(struct.pack("<I", batch.vertex_start))
             f.write(struct.pack("<I", batch.vertex_end))
             f.write(struct.pack("<I", batch.primitive_type))
