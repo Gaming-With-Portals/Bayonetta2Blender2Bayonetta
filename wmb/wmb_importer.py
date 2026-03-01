@@ -664,6 +664,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes):
 
                 obj["unknownE1"] = batch_faces[1].unknownE1
                 obj["unknownE2"] = batch_faces[1].unknownE2
+
                 obj["data"] = mesh_datas[mesh_index]
                 obj["vertex_start"] = batch_faces[1].vertexStart
                 obj["vertex_end"] = batch_faces[1].vertexEnd

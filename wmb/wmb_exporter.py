@@ -390,12 +390,6 @@ class WMBMeshBlob():
 
 class WMBBatch():
     def __init__(self, parent, obj, bone_ref_table):
-        self.is_dummy = False
-        if ("dummy" in obj):
-            if (obj["dummy"]):
-                self.is_dummy = True
-
-
         self.batch_idx = 0
         self.id = parent.mesh_id
         self.flags = obj["batch_flags"]
@@ -409,7 +403,11 @@ class WMBBatch():
             self.vertex_end = obj["vertex_end"]
         
         self.primitive_type = 4
-
+        self.indice_offset = 128
+        self.unknownE1 = obj["unknownE1"]
+        self.unknownE2 = obj["unknownE2"]
+        
+        batch_ref_table = bone_ref_table[obj.name]
 
         self.unknownE1 = obj["unknownE1"]
         self.unknownE2 = obj["unknownE2"]
@@ -431,15 +429,7 @@ class WMBBatch():
                 tri.vertices[2] + self.vertex_start,
             ])'''
         
-        if (not self.is_dummy):
-            for tri in mesh.loop_triangles:
-                self.indices.extend([
-                    tri.vertices[0] + self.vertex_start,
-                    tri.vertices[2] + self.vertex_start,
-                    tri.vertices[1] + self.vertex_start,
-                ])
-        else:
-            tri = mesh.loop_triangles[0]
+        for tri in mesh.loop_triangles:
             self.indices.extend([
                 tri.vertices[0] + self.vertex_start,
                 tri.vertices[2] + self.vertex_start,
@@ -452,8 +442,6 @@ class WMBBatch():
         for global_id, local_id in sorted(batch_ref_table.items(), key=lambda x: x[1]):
             self.required_bones.append(global_id)
 
-
-
         '''for group in obj.vertex_groups:
             self.has_bone_refs = 1
             #self.required_bones.append(int(group.name[4:]))
@@ -462,12 +450,6 @@ class WMBBatch():
                 self.required_bones.append(0)  # pad with 0s
 
             self.required_bones[bone_id] = bone_id'''
-        
-
-        if (USE_LARGE_BONES):
-            self.indice_offset = align(0x40 + 0x8 + len(self.required_bones) * 2, 0x80) # Batch Header Size + Large Bones Header + UShorts
-        else:
-            self.indice_offset = align(0x40 + 0x4 + len(self.required_bones), 0x80) # Batch Header Size + Bone Table + UBytes
 
     def fetch_size(self):
         size = 256
@@ -664,6 +646,7 @@ class WMBDataGenerator:
                     self.meshes.append(mesh_dat)
                     mesh_offset_ticker+=mesh_dat.fetch_size()
 
+        print(bone_reference_dictionary)
 
 
 def WMB0_Write_HDR(f, generated_data : WMBDataGenerator):
