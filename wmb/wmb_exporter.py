@@ -6,12 +6,12 @@ from io import BufferedReader
 from mathutils import Vector, Matrix
 import numpy as np
 from .wmb_materials import materialSizeDictionary
-from .wmb_custom_bones import encode_parts_index_no_table
+from .wmb_custom_bones import encode_parts_index_no_table as GenerateTranslateTable
 
-local_bone_to_id_map = {}
-global_name_to_local_id = {} # for those stupid ass vertex groups
+GENERATE_TRANSLATE_TABLE = True
+USE_LARGE_BONES = False
 
-GENERATE_BONE_INDEX_TRANSLATE_TABLE = True
+bone_name_to_id_map = {}
 
 def align(offset, alignment):
     return offset if offset % alignment == 0 else offset + (alignment - (offset % alignment))
@@ -20,8 +20,10 @@ def float_to_half_bytes(f):
     h = np.float16(f)
     return h.tobytes()
 
+
+
 class WMBVertexChunk:
-    def __init__(self, children):
+    def __init__(self, children, ref_table):
         self.vertex_infos = []
         self.exvertex_infos = []
         self.total_vertices = 0
@@ -32,9 +34,15 @@ class WMBVertexChunk:
         for obj in children:
             if obj.type != 'MESH':
                 continue
+            
+            print(f"[>] Generating vertex data for {obj.name}")
+
+            ref_table[obj.name] = {}
+            bone_counter = 0
 
             depsgraph = bpy.context.evaluated_depsgraph_get()
             eval_obj = obj.evaluated_get(depsgraph)
+            
             eval_mesh = eval_obj.to_mesh()
 
             eval_mesh.calc_tangents(uvmap=eval_mesh.uv_layers.active.name)
@@ -45,11 +53,25 @@ class WMBVertexChunk:
 
             uv_layer = eval_mesh.uv_layers.active
             loop_map = {} 
+            tangent_map = {}
 
             for loop in eval_mesh.loops:
                 vidx = loop.vertex_index
                 if vidx not in loop_map:
                     loop_map[vidx] = uv_layer.data[loop.index].uv.copy() 
+                    #uv = uv_layer.data[loop.index].uv
+                    #uv = (float(uv[0]), float(uv[1]))
+                    #loop_map[vidx] = uv
+
+                if vidx not in tangent_map:
+                    tangent = loop.tangent
+                    normal = loop.normal
+
+
+                    sign = 128 * (loop.bitangent < 0)
+                    tangent_map[vidx] = (tangent.x, tangent.y, tangent.z, sign)
+
+
 
             obj["vertex_start"] = vertex_ticker
             for vertex in eval_mesh.vertices:
@@ -57,48 +79,112 @@ class WMBVertexChunk:
                 pos = vertex.co
                 normal = vertex.normal  # vertex normal (not loop normal)
                 
-                uv = loop_map.get(vertex.index, (0.0, 0.0))
+                uv = loop_map.get(vertex.index, Vector((0.0, 0.0)))
                 MAX_WEIGHTS = 4
                 bone_weights = []
                 bone_indices = []
                 for g in vertex.groups:
                     group_index = g.group
                     weight = g.weight
-                    # Group indices directly map to bone indices in the batch
+                    group_name = obj.vertex_groups[group_index].name
+                    bone_id = 0
+
+                    if (getBoneID(group_name) in ref_table[obj.name]):
+                        bone_id = ref_table[obj.name][getBoneID(group_name)]
+                    else:
+                        bone_id = bone_counter
+                        ref_table[obj.name][getBoneID(group_name)] = bone_counter
+                        bone_counter+=1
+
+                    
                     bone_weights.append(weight)
-                    bone_indices.append(group_index)
+                    bone_indices.append(bone_id)
 
-                bone_data = sorted(zip(bone_weights, bone_indices), reverse=True)[:MAX_WEIGHTS]
-                weights, indices = zip(*bone_data) if bone_data else ([], [])
-                weights = list(weights) + [0.0] * (MAX_WEIGHTS - len(weights))
-                indices = list(indices) + [0] * (MAX_WEIGHTS - len(indices))
+                pairs = list(zip(bone_weights, bone_indices))
+                pairs = sorted(pairs, key=lambda p: p[0], reverse=True)[:MAX_WEIGHTS]
 
-                normal = obj.matrix_world.to_3x3() @ vertex.normal
-                normal.normalize()
+                float_weights = [p[0] for p in pairs]
+                sel_indices = [p[1] for p in pairs]
 
-
-                total = sum(weights)
+                total = sum(float_weights)
                 if total > 0:
-                    weights = [w / total for w in weights]
+                    float_weights = [w / total for w in float_weights]
+                else:
+                    float_weights = [0.0] * len(float_weights)
+
+                while len(float_weights) < MAX_WEIGHTS:
+                    float_weights.append(0.0)
+                    sel_indices.append(0)
+
+                int_weights = [int(w * 255.0) for w in float_weights]
+
+                rem = 255 - sum(int_weights)
+                if rem != 0:
+                    order = sorted(range(MAX_WEIGHTS), key=lambda i: float_weights[i], reverse=True)
+                    i = 0
+                    while rem != 0:
+                        idx = order[i]
+                        if rem > 0 and int_weights[idx] < 255:
+                            int_weights[idx] += 1
+                            rem -= 1
+                        elif rem < 0 and int_weights[idx] > 0:
+                            int_weights[idx] -= 1
+                            rem += 1
+                        i = (i + 1) % MAX_WEIGHTS
+
+                int_weights = [max(0, min(255, w)) for w in int_weights]
 
                 vertex_info = []
                 vertex_info.append(pos.copy())
                 vertex_info.append((normal.x, normal.z, -normal.y))
-                vertex_info.append(0)  # Tangents
-                vertex_info.append(tuple(indices))
-                vertex_info.append(tuple(int(w * 255) for w in weights))
+
+                tangent_info = tangent_map.get(vertex.index, (0.0, 0.0, 0.0, 1.0))
+
+                vertex_info.append(tangent_info)
+                vertex_info.append(tuple(sel_indices))
+                vertex_info.append(tuple(int_weights))
                 vertex_info.append(uv.copy())
+                #vertex_info.append((uv[0], uv[1]))
                 self.vertex_infos.append(vertex_info)
             obj["vertex_end"] = vertex_ticker
 
 def getBoneID(boneName):
-    return int(boneName[4:]) # This will be important later
+    return bone_name_to_id_map[boneName] # later is now, and this is important!
 
-def getLocalBoneID(bone):
-    if not bone in local_bone_to_id_map:
-        print("What the fuck, this will crash and not work in game and thank goodness because how did you do this ")
+    #return int(boneName[4:]) # This will be important later
 
-    return int(local_bone_to_id_map[bone])
+
+
+class WMBWeightDataVertexChunk:
+        def __init__(self, children, vertexchunk : WMBVertexChunk, meshes):
+
+            self.vertex_infos = vertexchunk.vertex_infos
+            for obj in children:
+                if obj.type != 'MESH':
+                    continue
+                depsgraph = bpy.context.evaluated_depsgraph_get()
+                eval_obj = obj.evaluated_get(depsgraph)
+                eval_mesh = eval_obj.to_mesh()
+
+                current_batch = obj.name.split("-")[0]
+
+                for vertex in eval_mesh.vertices:
+                    MAX_WEIGHTS = 4
+                    bone_weights = []
+                    bone_indices = []
+                    for g in vertex.groups:
+                        group_index = g.group
+                        weight = g.weight
+                        group_name = obj.vertex_groups[group_index].name
+                        bone_id = getBoneID(group_name)
+                        bone_weights.append(weight)
+                        bone_indices.append(bone_id)
+
+                    bone_data = sorted(zip(bone_weights, bone_indices), reverse=True)[:MAX_WEIGHTS]
+                    weights, indices = zip(*bone_data) if bone_data else ([], [])
+                    weights = list(weights) + [0.0] * (MAX_WEIGHTS - len(weights))
+                    
+                    indices = list(indices) + [0] * (MAX_WEIGHTS - len(indices))
 
 
 
@@ -107,9 +193,9 @@ class WMBBoneParents:
         self.bone_map = {}
         for bone in arm_obj.data.bones:
             if bone.parent:
-                self.bone_map[getLocalBoneID(bone)] = getLocalBoneID(bone.parent)
+                self.bone_map[getBoneID(bone.name)] = int(getBoneID(bone.parent.name))
             else:
-                self.bone_map[getLocalBoneID(bone)] = -1
+                self.bone_map[getBoneID(bone.name)] = -1
 
 class WMBBonePosition:
     def __init__(self, arm_obj):
@@ -125,23 +211,23 @@ class WMBBonePosition:
             bone_rel_pos = bone.head_local - parent_pos
             bone_abs_pos = bone.head_local
 
-            self.bone_rel_map[getLocalBoneID(bone)] = (bone_rel_pos.x, bone_rel_pos.y, bone_rel_pos.z)
-            self.bone_pos_map[getLocalBoneID(bone)] = (bone_abs_pos.x, bone_abs_pos.y, bone_abs_pos.z)
+            self.bone_rel_map[getBoneID(bone.name)] = (bone_rel_pos.x, bone_rel_pos.y, bone_rel_pos.z)
+            self.bone_pos_map[getBoneID(bone.name)] = (bone_abs_pos.x, bone_abs_pos.y, bone_abs_pos.z)
 
 
 
 class WMBBoneIndexTranslateTable:
     def __init__(self, arm_obj):
-
-
-        if (GENERATE_BONE_INDEX_TRANSLATE_TABLE):
-            print("[>] Generating bone index translate table data...")
+        if (GENERATE_TRANSLATE_TABLE):
             translate_table_food = []
+
             for bone in sorted(arm_obj.data.bones, key=lambda x: x["id"]):
-                translate_table_food.append((int(bone["id"]), local_bone_to_id_map[bone]))
-            print(translate_table_food)
-            self.data = encode_parts_index_no_table(sorted(translate_table_food, key = lambda x: x[1]))
+                translate_table_food.append((bone["id"], getBoneID(bone.name)))
+
+
+            self.data = GenerateTranslateTable(translate_table_food)
             self.size = len(self.data) * 2
+
         else:
             self.level_1 = arm_obj["translate_table_1"]
             self.level_2 = arm_obj["translate_table_2"]
@@ -183,7 +269,7 @@ class WMBBoneSymmetries:
 
 
                     if abs(-pos[0] - pos_2[0]) < 0.0001:
-                        self.sym_map[getLocalBoneID(bone)] = getLocalBoneID(bone)
+                        self.sym_map[getBoneID(bone.name)] = getBoneID(bone_2.name)
 
 class WMBBoneFlags:
     def __init__(self, arm_obj):
@@ -191,12 +277,15 @@ class WMBBoneFlags:
         self.flag_map = {}
         if (arm_obj["bone_flags"]):
             bpy.context.view_layer.objects.active = arm_obj
+            bpy.ops.object.mode_set(mode='EDIT')
             self.enabled = True
-            for bone in arm_obj.data.bones:
+            for bone in arm_obj.data.edit_bones:
                 if "flags" in bone:
-                    self.flag_map[getLocalBoneID(bone)] = bone["flags"]
+                    self.flag_map[getBoneID(bone.name)] = bone["flags"]
                 else:
-                    self.flag_map[getLocalBoneID(bone)] = 5
+                    self.flag_map[getBoneID(bone.name)] = 5
+
+            bpy.ops.object.mode_set(mode='OBJECT')
 
 class WMBMaterial(): # Good enough for a direct port 
     def __init__(self):
@@ -204,6 +293,7 @@ class WMBMaterial(): # Good enough for a direct port
         self.flag = 0
         self.size = 0
         self.type = 0
+        self.formal_data = []
         self.data = []
 
     def fetch_size(self):
@@ -212,8 +302,27 @@ class WMBMaterial(): # Good enough for a direct port
     def write(self, f):
         f.write(struct.pack("<H", self.type))
         f.write(struct.pack("<H", self.flag))
-        for i in self.data: # Write raw data
-            f.write(struct.pack("<i", i))
+        for data in self.formal_data:
+            data_fmt = data.type
+            if (data_fmt == "sampler2D_t" or data_fmt == "samplerCUBE_t"):
+                f.write(struct.pack("<i", data.value_int))
+            elif (data_fmt == "f4_float3_t"):
+                f.write(struct.pack("<fff", *data.value_vec3))
+                f.write(struct.pack("<f", -1))
+            elif (data_fmt == "f4_float2_t"):
+                f.write(struct.pack("<ff", *data.value_vec2))
+                f.write(struct.pack("<f", -1))
+                f.write(struct.pack("<f", -1))
+            elif (data_fmt == "f4_float_t"):
+                f.write(struct.pack("<f", data.value_float))
+                f.write(struct.pack("<f", -1))
+                f.write(struct.pack("<f", -1))
+                f.write(struct.pack("<f", -1))
+            else:
+                f.write(struct.pack("<ffff", *data.value_vec4))
+
+        #for i in self.data: # Write raw data
+        #    f.write(struct.pack("<i", i))
 
 
 class WMBMaterialBlob:
@@ -230,14 +339,28 @@ class WMBMaterialBlob:
 
         sorted_mats = sorted(unique_mats, key=lambda m: int(m.name.rsplit("_", 1)[-1]))
 
+        last_id = -1
+        last_mat = None
+
         for mat in sorted_mats:
+            mat_id = int(mat.name.rsplit("_", 1)[-1])
+
+            while last_id + 1 < mat_id:
+                if last_material:
+                    self.materials.append(last_material)
+                last_id += 1
+
             emat = WMBMaterial()
             emat.id = int(mat.name.rsplit("_", 1)[-1])
-            emat.size = int(mat["size"])
-            emat.flag = int(mat["flags"])
-            emat.type = int(mat["type"])
+            emat.size = materialSizeDictionary[mat.bayo_data.type]
+            emat.flag = mat.bayo_data.flags
+            emat.type = mat.bayo_data.type
             emat.data = mat["data"]
+            emat.formal_data = mat.bayo_data.parameters
             self.materials.append(emat)
+
+            last_id = mat_id
+            last_material = emat
 
         self.material_count = len(self.materials)
 
@@ -266,18 +389,26 @@ class WMBMeshBlob():
                     self.mesh_count+=1
 
 class WMBBatch():
-    def __init__(self, parent, obj):
+    def __init__(self, parent, obj, bone_ref_table):
         self.batch_idx = 0
         self.id = parent.mesh_id
-        self.flags = 32769
+        self.flags = obj["batch_flags"]
         self.exmaterial_id = 0
         self.material_id = int(obj.material_slots[0].name.rsplit("_", 1)[-1])
         self.has_bone_refs = 0
         self.vertex_start = obj["vertex_start"]
         self.vertex_end = obj["vertex_end"]
         self.primitive_type = 4
-        self.indice_offset = 128
+        if (USE_LARGE_BONES):
+            self.indice_offset = 256
+        else:
+            self.indice_offset = 128
 
+
+        self.unknownE1 = obj["unknownE1"]
+        self.unknownE2 = obj["unknownE2"]
+        
+        batch_ref_table = bone_ref_table[obj.name]
 
         mesh = obj.data
         bm = bmesh.new()
@@ -287,29 +418,44 @@ class WMBBatch():
         bm.free()
         mesh.calc_loop_triangles()
         self.indices = []
+        '''for tri in mesh.loop_triangles:
+            self.indices.extend([
+                tri.vertices[0] + self.vertex_start,
+                tri.vertices[1] + self.vertex_start,
+                tri.vertices[2] + self.vertex_start,
+            ])'''
+        
         for tri in mesh.loop_triangles:
             self.indices.extend([
-                # Winding order needs to be flipped to appear correct in game.
+                tri.vertices[0] + self.vertex_start,
                 tri.vertices[2] + self.vertex_start,
                 tri.vertices[1] + self.vertex_start,
-                tri.vertices[0] + self.vertex_start,
             ])
 
+        self.has_bone_refs = 1
         self.required_bones = []
-        for group in obj.vertex_groups:
+        for global_id, local_id in sorted(batch_ref_table.items(), key=lambda x: x[1]):
+            self.required_bones.append(global_id)
+
+        '''for group in obj.vertex_groups:
             self.has_bone_refs = 1
-            self.required_bones.append(global_name_to_local_id[group.name])
+            #self.required_bones.append(int(group.name[4:]))
+            bone_id = int(group.name[4:])
+            while len(self.required_bones) <= bone_id:
+                self.required_bones.append(0)  # pad with 0s
+
+            self.required_bones[bone_id] = bone_id'''
 
     def fetch_size(self):
-        size = self.indice_offset
-        size += len(self.indices) * 2
+        size = 256
+        size+=len(self.indices)*2
 
         return size
         
 
 
 class WMBMesh():
-    def __init__(self, arm_obj, obj, ofticker):
+    def __init__(self, arm_obj, obj, bone_ref_table):
         name_parts = obj.name.split("-")
         self.name = name_parts[1]
         self.exdata = obj["data"]
@@ -333,21 +479,18 @@ class WMBMesh():
         self.batch_offset_offset = 128
         self.bounding_box_infos = 1
 
-        self.batch_start_offset = 4 * self.batch_count
+        self.batch_start_offset = align(4 * self.batch_count, 32)
         offset = self.batch_start_offset
         self.batch_offsets = []
         for batch_obj in bpy_batches:
-            offset = align(offset, 32)
-            tmp_batch = WMBBatch(self, batch_obj)
+            tmp_batch = WMBBatch(self, batch_obj, bone_ref_table)
             self.batches.append(tmp_batch)
             self.batch_offsets.append(offset)
-            offset += tmp_batch.fetch_size()
+            offset+=tmp_batch.fetch_size()
 
     def fetch_size(self):
-        size = self.batch_offset_offset
-        size += self.batch_start_offset
+        size = self.batch_start_offset
         for batch in self.batches:
-            size = align(size, 32)
             size += batch.fetch_size()
         return size
 
@@ -361,20 +504,23 @@ class WMBDataGenerator:
         for child in arm_obj.children:
             if child.type != 'MESH':
                 continue
+            
+
+        # make up some shi
+        current_highest_id = 0
+        for bone in arm_obj.data.bones:
+            if "id" in bone:
+                if bone["id"] > current_highest_id:
+                    current_highest_id = bone["id"] + 1
+
+        for bone in arm_obj.data.bones:
+            if "id" not in bone:
+                bone["id"] = current_highest_id
+                current_highest_id+=1 
 
 
-        # I do need custom local bone indexes. And global ones, wanna know why? "I have a dream." That one day, every person who uses this plugin will control their OWN armatures
-        # A land of the TRULY free, dammit, a plugin of ACTION, not documentation, ruled by CREATIVE, not edge cases. Where the code changes to suit the modder. 
-        # Not the other way around. Where power and hcoice are back where they belong, in the hands of the modders! Where every modder is free to mod, and customize, for himself!
-        # Fuck all these limp-dick tools and chicken-shit 'it works on my machine'. Fuck this 24/7 internet spew of trivia and CruelerThanDAT bullshit. Fuck patchers, fuck the media
-        # fuck all of it! Bayonetta models are diseased, rotten to the core, there's no saving it -- we need to pull it out by the roots, wipe the slate clean. BURN IT DOWN!
-        # And from the ashes, a new model modding tool will be born, evolved, but untamed! The weak will be purged, and the strongest will thrive -- free to mod as they see fit,    
-        # - Senator Armstrong (probably), 2013
         for i, bone in enumerate(sorted(arm_obj.data.bones, key=lambda x: x["id"])):
-            local_bone_to_id_map[bone] = i
-            global_name_to_local_id[bone.name] = i
-            bone["read_only_local_index"] = i
-
+            bone_name_to_id_map[bone.name] = i # Come up with some ids for local bones, these can be entirely arbitrary
 
         offset_ticker = 0
         self.header_offset = 0
@@ -389,9 +535,11 @@ class WMBDataGenerator:
         offset_ticker += self.header_size
         offset_ticker = align(offset_ticker, 32)
 
+        bone_reference_dictionary = {}
+
         ## -- VERTEX CHUNK A --
         self.offset_vertexes = offset_ticker
-        self.vertex_data = WMBVertexChunk(arm_obj.children)
+        self.vertex_data = WMBVertexChunk(arm_obj.children, bone_reference_dictionary)
         offset_ticker += self.vertex_data.total_vertices * 32
         offset_ticker = align(offset_ticker, 32)
 
@@ -477,21 +625,22 @@ class WMBDataGenerator:
         self.mesh_offsets = []
 
         mesh_offset_ticker = 0
-        
-        for obj in arm_obj.children:
-            if obj.type != 'MESH':
-                continue
+
+        sorted_children = sorted(
+            (c for c in arm_obj.children if c.type == 'MESH'),
+            key=lambda obj: int(obj.name.split("-")[0])
+        )
+
+        for obj in sorted_children:
             name_parts = obj.name.split("-")
-            if (len(name_parts) == 3):
-                if (int(name_parts[2]) == 0):
-                    mesh_offset_ticker = align(mesh_offset_ticker, 32)
-                    mesh_dat = WMBMesh(arm_obj, obj, offset_ticker)
+            if len(name_parts) == 3:
+                if int(name_parts[2]) == 0:
+                    mesh_dat = WMBMesh(arm_obj, obj, bone_reference_dictionary)
                     self.mesh_blob.offsets.append(mesh_offset_ticker)
                     self.mesh_offsets.append(mesh_offset_ticker)
                     self.meshes.append(mesh_dat)
                     mesh_offset_ticker+=mesh_dat.fetch_size()
 
-        
 
 
 def WMB0_Write_HDR(f, generated_data : WMBDataGenerator):
@@ -529,6 +678,9 @@ def WMB0_Write_HDR(f, generated_data : WMBDataGenerator):
     f.write(struct.pack("<I", generated_data.offset_bone_sym))
     f.write(struct.pack("<I", generated_data.offset_bone_flags))
 
+def pack_tangent(v):
+    return max(0, min(255, int((v * 0.5 + 0.5) * 255)))
+
 def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
     for data in generated_data.vertex_data.vertex_infos:
         uv_bytes = float_to_half_bytes(data[5][0]) + float_to_half_bytes(1 - data[5][1])
@@ -543,10 +695,21 @@ def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
         ny = max(-127, min(127, ny))
         nz = max(-127, min(127, nz))
 
-        f.write(struct.pack('<4b', 0, nz, ny, nx)) # Normals
-        f.write(struct.pack("<i", 0)) # Tangents
+        tx, ty, tz, d = data[2]
+        tangent_bytes = bytes([
+            pack_tangent(tx),
+            pack_tangent(ty),
+            pack_tangent(tz),
+            pack_tangent(d)
+        ])
+        
+
+        f.write(struct.pack('<4b', 0, ny, -nz, nx)) # Normals
+        f.write(tangent_bytes)
         f.write(struct.pack("<BBBB", *data[3])) # Bone Indexes
         f.write(struct.pack("<BBBB", *data[4])) # Bone Weights
+
+
     f.seek(generated_data.offset_ex_vertexes)
     for data in generated_data.vertex_data.exvertex_infos:
         f.write(struct.pack("<bbbb", *data[0]))
@@ -579,9 +742,10 @@ def WMB0_Write_Positions_Abs(f, generated_data : WMBDataGenerator):
 
 
 def WMB0_Write_BoneIndexTranslateTable(f, generated_data : WMBDataGenerator):
-    if (GENERATE_BONE_INDEX_TRANSLATE_TABLE):
+    if (GENERATE_TRANSLATE_TABLE):
         for i in generated_data.bone_index_translate_table.data:
             f.write(struct.pack("<H", i))
+
     else:
         for i in generated_data.bone_index_translate_table.level_1:
             f.write(struct.pack("<h", i))
@@ -663,8 +827,8 @@ def WMB0_Write_Mesh_Data(f, generated_data : WMBDataGenerator):
             f.write(struct.pack("<h", batch.exmaterial_id))
             f.write(struct.pack("<B", batch.material_id))
             f.write(struct.pack("<B", batch.has_bone_refs))
-            f.write(struct.pack("<b", 0))
-            f.write(struct.pack("<b", 0))
+            f.write(struct.pack("<b", batch.unknownE1))
+            f.write(struct.pack("<b", batch.unknownE2))
             f.write(struct.pack("<I", batch.vertex_start))
             f.write(struct.pack("<I", batch.vertex_end))
             f.write(struct.pack("<I", batch.primitive_type))
@@ -673,17 +837,28 @@ def WMB0_Write_Mesh_Data(f, generated_data : WMBDataGenerator):
             f.write(struct.pack("<I", 0))
             f.write(struct.pack("<IIIIIII", 0, 0, 0, 0, 0, 0, 0))
             f.write(struct.pack("<I", len(batch.required_bones)))
-            for i in batch.required_bones:
-                f.write(struct.pack("<B", i))
+
+            if (USE_LARGE_BONES):
+                f.write(struct.pack("<i", -1))
+                for i in batch.required_bones:
+                    f.write(struct.pack("<H", i))
+
+            else:
+                for i in batch.required_bones:
+                    f.write(struct.pack("<B", i))
 
             f.seek(batch_offset + batch.indice_offset)
             for indice in batch.indices:
                 f.write(struct.pack("<H", indice))
 
 
-
 def export(filepath, all_bone_refs=False, btt=True, large_bones=False):
-    GENERATE_BONE_INDEX_TRANSLATE_TABLE = btt
+    global GENERATE_TRANSLATE_TABLE
+    global USE_LARGE_BONES
+
+
+    USE_LARGE_BONES = large_bones
+    GENERATE_TRANSLATE_TABLE = btt
 
     print("- BEGIN EXPORT -")
     f = open(filepath, "wb")

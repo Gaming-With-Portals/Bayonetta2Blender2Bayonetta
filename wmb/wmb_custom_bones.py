@@ -1,4 +1,4 @@
-
+# Input: Tuple Array (Global Id, Local Id)
 def encode_parts_index_no_table(parts_no_index_map):
     # Credits to Skyth
     l1_table = [0xFFFF] * 16

@@ -25,7 +25,7 @@ class ExportBayoWMB(bpy.types.Operator, ExportHelper):
     filename_ext = ".wmb"
     filter_glob: StringProperty(default="*.wmb", options={'HIDDEN'})
 
-    btt: bpy.props.BoolProperty(name="Generate Bone Index Translate Table", default=False)
+    btt: bpy.props.BoolProperty(name="Generate Bone Index Translate Table", default=True)
     large_bone: bpy.props.BoolProperty(name="Use Skyth's Large Bone Patch", default=False)
 
     def execute(self, context):
