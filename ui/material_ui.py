@@ -119,6 +119,7 @@ class BayoMaterialPanelAdvanced(bpy.types.Panel):
                 box.label(text=param.name)
                 box.prop(param, "value_vec4", text="")
 
+
 class BayoMaterialPanel(bpy.types.Panel):
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
@@ -142,6 +143,10 @@ class BayoMaterialPanel(bpy.types.Panel):
         for param in mat.bayo_data.parameters:
             if param.type in {"sampler2D_t", "samplerCUBE_t"}:
                 box.prop(param, "value_int", text=param.name)
+
+        box = layout.box()
+        for i, param in enumerate(mat.bayo_data.textures):
+            box.prop(param.id, "value_int", f"{i:02}")
     
         layout.operator(BayoMaterialToJSON.bl_idname, text="Copy Material")
         layout.operator(BayoJSONToMaterial.bl_idname, text="Paste Material")
