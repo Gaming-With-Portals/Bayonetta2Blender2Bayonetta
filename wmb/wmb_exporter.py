@@ -10,6 +10,8 @@ from .wmb_custom_bones import encode_parts_index_no_table as GenerateTranslateTa
 
 GENERATE_TRANSLATE_TABLE = True
 USE_LARGE_BONES = False
+OP_INSTANCE = None
+EXCEPT_AFTER_GENERATION = False
 
 bone_name_to_id_map = {}
 
@@ -20,7 +22,13 @@ def float_to_half_bytes(f):
     h = np.float16(f)
     return h.tobytes()
 
+def reportError(err_string):
+    global EXCEPT_AFTER_GENERATION
+    global OP_INSTANCE
 
+    print(f"ERROR: {err_string}")
+    OP_INSTANCE.report({'ERROR'}, err_string)
+    EXCEPT_AFTER_GENERATION = True
 
 class WMBVertexChunk:
     def __init__(self, children, ref_table):
@@ -406,6 +414,9 @@ class WMBBatch():
             self.vertex_end = obj["vertex_start"]+3
         else:
             self.vertex_end = obj["vertex_end"]
+
+        self.vertex_offset = self.vertex_start
+        self.flags |= 1
         
         self.primitive_type = 4
         self.unknownE1 = obj["unknownE1"]
@@ -428,31 +439,35 @@ class WMBBatch():
         self.indices = []
         '''for tri in mesh.loop_triangles:
             self.indices.extend([
-                tri.vertices[0] + self.vertex_start,
-                tri.vertices[1] + self.vertex_start,
-                tri.vertices[2] + self.vertex_start,
+                tri.vertices[0],
+                tri.vertices[1],
+                tri.vertices[2],
             ])'''
         
         if (self.is_dummy):
             tri = mesh.loop_triangles[0]
             self.indices.extend([
-                tri.vertices[0] + self.vertex_start,
-                tri.vertices[2] + self.vertex_start,
-                tri.vertices[1] + self.vertex_start,
+                tri.vertices[0],
+                tri.vertices[2],
+                tri.vertices[1],
             ])
         else:
             for tri in mesh.loop_triangles:
                 self.indices.extend([
-                    tri.vertices[0] + self.vertex_start,
-                    tri.vertices[2] + self.vertex_start,
-                    tri.vertices[1] + self.vertex_start,
+                    tri.vertices[0],
+                    tri.vertices[2],
+                    tri.vertices[1],
                 ])
         
 
         self.has_bone_refs = 1
         self.required_bones = []
+        
         for global_id, local_id in sorted(batch_ref_table.items(), key=lambda x: x[1]):
             self.required_bones.append(global_id)
+            if (global_id > 255 and not USE_LARGE_BONES):
+                reportError(f"Bone ID(s) outside of scope! This export will fail. Enable large bones or delete some!\nError Mesh: {parent.name}-{self.id}")
+
 
         '''for group in obj.vertex_groups:
             self.has_bone_refs = 1
@@ -861,7 +876,7 @@ def WMB0_Write_Mesh_Data(f, generated_data : WMBDataGenerator):
             f.write(struct.pack("<I", batch.primitive_type))
             f.write(struct.pack("<I", batch.indice_offset))
             f.write(struct.pack("<I", len(batch.indices)))
-            f.write(struct.pack("<I", 0))
+            f.write(struct.pack("<I", batch.vertex_offset))
             f.write(struct.pack("<IIIIIII", 0, 0, 0, 0, 0, 0, 0))
             f.write(struct.pack("<I", len(batch.required_bones)))
 
@@ -879,19 +894,26 @@ def WMB0_Write_Mesh_Data(f, generated_data : WMBDataGenerator):
                 f.write(struct.pack("<H", indice))
 
 
-def export(filepath, all_bone_refs=False, btt=True, large_bones=False):
+def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=False):
     global GENERATE_TRANSLATE_TABLE
     global USE_LARGE_BONES
-
+    global OP_INSTANCE
+    global EXCEPT_AFTER_GENERATION
 
     USE_LARGE_BONES = large_bones
     GENERATE_TRANSLATE_TABLE = btt
+    OP_INSTANCE = op_inst
 
     print("- BEGIN EXPORT -")
     f = open(filepath, "wb")
     print("[>] Preparing data...")
 
     generated_data = WMBDataGenerator() # Loosely based off of MGR2Blender
+    if (EXCEPT_AFTER_GENERATION):
+        raise Exception("Caught error(s) during generation!\nSee blender log for details.")
+        return {'CANCELED'}
+
+
     f.seek(generated_data.header_offset)
     WMB0_Write_HDR(f, generated_data)
     f.seek(generated_data.offset_vertexes)
@@ -922,4 +944,6 @@ def export(filepath, all_bone_refs=False, btt=True, large_bones=False):
     f.write(b"This WMB was brought to you by Gaming With Portals, Raq, and Skyth")
 
     f.close()
+
+    print("Done!")
     return {'FINISHED'}

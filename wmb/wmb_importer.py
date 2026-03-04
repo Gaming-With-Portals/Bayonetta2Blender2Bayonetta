@@ -583,10 +583,13 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes):
                 batch_info = WMBBatchHeader(f)
                 f.read(28)
 
+                vertex_offset = 0
+                if (batch_info.flags & 0x1) != 0:
+                    vertex_offset = batch_info.vertexOffset
+
                 num_bone_maps = struct.unpack('<I', f.read(4))[0]
                 bone_map = list(f.read(num_bone_maps))
                 batch_bone_maps.append(bone_map)
-
                 batch_faces = []
 
                 if batch_info.numIndices > 0:
@@ -596,7 +599,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes):
 
                     if batch_info.primativeType == 4:
                         for i in range(0, len(indices) - 2, 3):
-                            batch_faces.append((indices[i], indices[i + 1], indices[i + 2]))
+                            batch_faces.append((indices[i] + vertex_offset, indices[i + 1] + vertex_offset, indices[i + 2] + vertex_offset))
                     elif batch_info.primativeType == 5:
                         a, b = indices[0], indices[1]
                         for i in range(2, len(indices)):
@@ -605,9 +608,9 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes):
                                 a, b = b, c
                                 continue
                             if (i - 2) % 2 == 0:
-                                batch_faces.append((b, a, c))
+                                batch_faces.append((b + vertex_offset, a + vertex_offset, c + vertex_offset))
                             else:
-                                batch_faces.append((a, b, c))
+                                batch_faces.append((a + vertex_offset, b + vertex_offset, c + vertex_offset))
                             a, b = b, c
                 batch_faces_list.append([batch_faces,batch_info])
 
