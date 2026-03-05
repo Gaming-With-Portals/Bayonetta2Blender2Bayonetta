@@ -62,7 +62,7 @@ class WMBVertexChunk:
 
             
             uv_layer = eval_mesh.uv_layers.active
-            uv_layer_2 = eval_mesh.uv_layers["UVMap2"]
+            uv_layer_2 = eval_mesh.uv_layers.get("UVMap2", None)
             loop_map = {} 
             loop_map_2 = {}
             tangent_map = {}
@@ -73,7 +73,7 @@ class WMBVertexChunk:
                 if vidx not in loop_map:
                     loop_map[vidx] = uv_layer.data[loop.index].uv.copy() 
                 
-                if vidx not in loop_map_2:
+                if vidx not in loop_map_2 and uv_layer_2 is not None:
                     loop_map_2[vidx] = uv_layer_2.data[loop.index].uv.copy() 
 
                 if vidx not in color_map and color_layer is not None:
