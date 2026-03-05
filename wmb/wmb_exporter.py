@@ -58,18 +58,26 @@ class WMBVertexChunk:
             self.total_vertices += len(eval_mesh.vertices)
             sorted_loops = sorted(eval_mesh.loops, key=lambda loop: loop.vertex_index)
 
+            color_layer = eval_mesh.vertex_colors.get("Col", None)
 
+            
             uv_layer = eval_mesh.uv_layers.active
+            uv_layer_2 = eval_mesh.uv_layers["UVMap2"]
             loop_map = {} 
+            loop_map_2 = {}
             tangent_map = {}
+            color_map = {}
 
             for loop in eval_mesh.loops:
                 vidx = loop.vertex_index
                 if vidx not in loop_map:
                     loop_map[vidx] = uv_layer.data[loop.index].uv.copy() 
-                    #uv = uv_layer.data[loop.index].uv
-                    #uv = (float(uv[0]), float(uv[1]))
-                    #loop_map[vidx] = uv
+                
+                if vidx not in loop_map_2:
+                    loop_map_2[vidx] = uv_layer_2.data[loop.index].uv.copy() 
+
+                if vidx not in color_map and color_layer is not None:
+                    color_map[vidx] = color_layer.data[loop.index].color[:]
 
                 if vidx not in tangent_map:
                     tangent = loop.tangent
@@ -88,6 +96,7 @@ class WMBVertexChunk:
                 normal = vertex.normal  # vertex normal (not loop normal)
                 
                 uv = loop_map.get(vertex.index, Vector((0.0, 0.0)))
+                uv_2 = loop_map_2.get(vertex.index, Vector((0.0, 0.0)))
                 MAX_WEIGHTS = 4
                 bone_weights = []
                 bone_indices = []
@@ -142,7 +151,10 @@ class WMBVertexChunk:
 
                 int_weights = [max(0, min(255, w)) for w in int_weights]
 
+
+
                 vertex_info = []
+                ex_vertex_info = []
                 vertex_info.append(pos.copy())
                 vertex_info.append((normal.x, normal.z, -normal.y))
 
@@ -153,7 +165,19 @@ class WMBVertexChunk:
                 vertex_info.append(tuple(int_weights))
                 vertex_info.append(uv.copy())
                 #vertex_info.append((uv[0], uv[1]))
+
+                def blenderColorToBayo(color):
+                    r = int(color[0]/255)
+                    g = int(color[1]/255)
+                    b = int(color[2]/255)
+                    a = int(color[3]/255)
+                    return (r, g, b, a)
+
+                ex_vertex_info.append(blenderColorToBayo(color_map.get(vertex.index, (0, 0, 0, 0))))
+                ex_vertex_info.append(uv_2.copy())
+
                 self.vertex_infos.append(vertex_info)
+                self.exvertex_infos.append(ex_vertex_info)
             obj["vertex_end"] = vertex_ticker
 
 def getBoneID(boneName):
@@ -755,7 +779,8 @@ def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
     f.seek(generated_data.offset_ex_vertexes)
     for data in generated_data.vertex_data.exvertex_infos:
         f.write(struct.pack("<bbbb", *data[0]))
-        f.write(struct.pack("<hh", *data[1]))
+        uv_bytes = float_to_half_bytes(data[1][0]) + float_to_half_bytes(1 - data[1][1])
+        f.write(uv_bytes)
 
 def WMB0_Write_BoneParents(f, generated_data : WMBDataGenerator):
     bone_map = generated_data.bone_parents.bone_map
@@ -909,9 +934,6 @@ def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=Fa
     print("[>] Preparing data...")
 
     generated_data = WMBDataGenerator() # Loosely based off of MGR2Blender
-    if (EXCEPT_AFTER_GENERATION):
-        raise Exception("Caught error(s) during generation!\nSee blender log for details.")
-        return {'CANCELED'}
 
 
     f.seek(generated_data.header_offset)
