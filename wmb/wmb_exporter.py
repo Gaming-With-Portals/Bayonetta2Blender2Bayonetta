@@ -12,6 +12,7 @@ GENERATE_TRANSLATE_TABLE = True
 USE_LARGE_BONES = False
 OP_INSTANCE = None
 EXCEPT_AFTER_GENERATION = False
+COPY_UV_1_AS_2 = True
 
 bone_name_to_id_map = {}
 
@@ -177,7 +178,10 @@ class WMBVertexChunk:
                     return (r, g, b, a)
 
                 ex_vertex_info.append(blenderColorToBayo(color_map.get(vertex.index, (0, 0, 0, 0))))
-                ex_vertex_info.append(uv.copy())
+                if (COPY_UV_1_AS_2):
+                    ex_vertex_info.append(uv.copy())
+                else:
+                    ex_vertex_info.append(uv_2.copy())
 
                 self.vertex_infos.append(vertex_info)
                 self.exvertex_infos.append(ex_vertex_info)
@@ -361,8 +365,9 @@ class WMBMaterial(): # Good enough for a direct port
 
 
 class WMBMaterialBlob:
-    def __init__(self, arm_obj):
-        unique_mats = set()
+    def __init__(self, arm_obj, material_map):
+        # Moved to the start of GenerateData, with a bit more advanced processing
+        '''unique_mats = set()
         self.materials = []
 
         for obj in arm_obj.children:
@@ -372,21 +377,13 @@ class WMBMaterialBlob:
                 if slot.material:
                     unique_mats.add(slot.material)
 
-        sorted_mats = sorted(unique_mats, key=lambda m: int(m.name.rsplit("_", 1)[-1]))
+        sorted_mats = sorted(unique_mats, key=lambda m: int(m.name.rsplit("_", 1)[-1]))'''
 
-        last_id = -1
-        last_mat = None
+        self.materials = []
 
-        for mat in sorted_mats:
-            mat_id = int(mat.name.rsplit("_", 1)[-1])
-
-            while last_id + 1 < mat_id:
-                if last_material:
-                    self.materials.append(last_material)
-                last_id += 1
-
+        for i, mat in enumerate(material_map):
             emat = WMBMaterial()
-            emat.id = int(mat.name.rsplit("_", 1)[-1])
+            emat.id = i
             emat.size = materialSizeDictionary[mat.bayo_data.type]
             emat.flag = mat.bayo_data.flags
             emat.type = mat.bayo_data.type
@@ -394,8 +391,6 @@ class WMBMaterialBlob:
             emat.formal_data = mat.bayo_data.parameters
             self.materials.append(emat)
 
-            last_id = mat_id
-            last_material = emat
 
         self.material_count = len(self.materials)
 
@@ -429,12 +424,16 @@ class WMBBatch():
             self.is_dummy = obj["dummy"]
         else:
             self.is_dummy = False
+       
+
+            
+
 
         self.batch_idx = 0
         self.id = parent.mesh_id
         self.flags = obj["batch_flags"]
         self.exmaterial_id = 0
-        self.material_id = int(obj.material_slots[0].name.rsplit("_", 1)[-1])
+        self.material_id = int(obj.get("material_id", 0))
         self.has_bone_refs = 0
         self.vertex_start = obj["vertex_start"]
         if (self.is_dummy):
@@ -567,14 +566,28 @@ class WMBMesh():
 
 class WMBDataGenerator:
     def __init__(self, colName="WMB"):
-        
         wmb_collection =  bpy.context.view_layer.layer_collection.children[colName]
         sub_collection = [x for x in wmb_collection.children if x.is_visible][0]
         arm_obj = sub_collection.collection.objects[0]
-        for child in arm_obj.children:
-            if child.type != 'MESH':
+
+        material_remap = []
+
+        i = 0
+        for obj in arm_obj.children:
+            if obj.type != 'MESH':
                 continue
-            
+            for slot in obj.material_slots:
+                if slot.material:
+                    if (not slot.material in material_remap):
+                        material_remap.append(slot.material)
+                        obj["material_id"] = i
+                        i+=1
+                    break
+
+        print("Automatically remapping materials...")
+        for i, material in enumerate(material_remap):
+            print(f"[>] ID: {i:02} NAME: {material.name}")
+
 
         # make up some shi
         current_highest_id = 0
@@ -671,7 +684,7 @@ class WMBDataGenerator:
         ## -- MATERIAL CHUNK --
         print("[>] Generating material data...")
 
-        self.mat_blob = WMBMaterialBlob(arm_obj)
+        self.mat_blob = WMBMaterialBlob(arm_obj, material_remap)
         self.mat_offset_offset = offset_ticker
 
         offset_ticker += 4 * self.mat_blob.material_count
@@ -923,15 +936,17 @@ def WMB0_Write_Mesh_Data(f, generated_data : WMBDataGenerator):
                 f.write(struct.pack("<H", indice))
 
 
-def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=False):
+def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=False, copy_uv=True):
     global GENERATE_TRANSLATE_TABLE
     global USE_LARGE_BONES
     global OP_INSTANCE
     global EXCEPT_AFTER_GENERATION
+    global COPY_UV_1_AS_2
 
     USE_LARGE_BONES = large_bones
     GENERATE_TRANSLATE_TABLE = btt
     OP_INSTANCE = op_inst
+    COPY_UV_1_AS_2 = copy_uv
 
     print("- BEGIN EXPORT -")
     f = open(filepath, "wb")
