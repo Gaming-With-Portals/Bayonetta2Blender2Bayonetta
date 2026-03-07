@@ -266,7 +266,37 @@ class WMBMaterial:
         
         return mat
     
-def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes):
+class WMBMaterial2:
+    
+
+    def __init__(self, file, json):
+        self.matID = struct.unpack("<h", file.read(2))[0]
+        self.flags = struct.unpack("<h", file.read(2))[0]
+        self.texture_data = []
+        for i in range(5):
+            self.texture_data.append(struct.unpack("<I", file.read(4))[0])
+
+
+    def toBPYMaterial(self, material_name, texture_path=""):
+        mat = bpy.data.materials.new(material_name)
+        mat.bayo_data.parameters.clear()
+        mat.bayo_data.type = self.matID
+        mat.bayo_data.flags = self.flags
+        mat.bayo_data.bayonetta_2 = True
+        
+        i = 0
+        for tex in self.texture_data:
+            mat.bayo_data.textures.add()
+            mat.bayo_data.textures[i].id = self.texture_data[i]
+
+            i+=1
+
+
+        return mat
+
+
+    
+def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bayo_2=False):
     import numpy as np
 
     def read_half_float(hf_bytes):
@@ -326,8 +356,12 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes):
         materialOffsets = struct.unpack(("<" + "I"*numMaterials), f.read(4 * numMaterials))
         for x in range(numMaterials):
             f.seek(offsetMaterials + materialOffsets[x]) # not confusing at all :fire:
-            materialData = WMBMaterial(f, material_json)
-            bayonettaMaterialList.append(materialData)
+            if (bayo_2 == False):
+                materialData = WMBMaterial(f, material_json)
+                bayonettaMaterialList.append(materialData)
+            else:
+                materialData = WMBMaterial2(f, material_json)
+                bayonettaMaterialList.append(materialData)
 
 
         flag_map = {}
@@ -615,7 +649,6 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes):
                 batch_faces_list.append([batch_faces,batch_info])
 
             mesh_batches.append((name, batch_faces_list, batch_bone_maps, batch_starts, x))
-            print(batch_starts)
             last_batch_start = batch_starts[-1]
             f.seek(last_batch_start + 24)
             offset_indices = struct.unpack('<I', f.read(4))[0]
@@ -635,7 +668,6 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes):
             for batch_index, batch_faces in enumerate(batch_faces_list, 1):
                 object_name = f"{mesh_index}-{mesh_name}-{batch_index - 1}" # MGR2Blender style
                 print(f"[>] Importing {object_name}")
-                print(batch_faces)
                 used_indices = sorted(set(i for tri in batch_faces[0] for i in tri))
                 index_remap = {old_idx: new_idx for new_idx, old_idx in enumerate(used_indices)}
                 local_vertices = [vertices[i] for i in used_indices]
@@ -673,7 +705,10 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes):
                 obj["vertex_end"] = batch_faces[1].vertexEnd
                 model_collection.objects.link(obj)
                 obj.rotation_euler = (math.radians(90), 0, 0)
-                obj.data.materials.append(bayonettaMaterialList[batch_faces[1].materialID].toBPYMaterial(f"{wmb_name}_{batch_faces[1].materialID}", textures))
+                if (bayo_2):
+                    obj.data.materials.append(bayonettaMaterialList[batch_faces[1].exMaterialID].toBPYMaterial(f"{wmb_name}_{batch_faces[1].exMaterialID}", textures))
+                else:
+                    obj.data.materials.append(bayonettaMaterialList[batch_faces[1].materialID].toBPYMaterial(f"{wmb_name}_{batch_faces[1].materialID}", textures))
                 obj.parent = arm_obj
 
                 mod = obj.modifiers.new(name="Armature", type='ARMATURE')

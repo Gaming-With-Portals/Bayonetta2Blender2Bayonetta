@@ -158,6 +158,9 @@ class BayonettaParameter(bpy.types.PropertyGroup):
     value_vec3: bpy.props.FloatVectorProperty(size=3, default=(0.0, 0.0, 0.0))
     value_vec4: bpy.props.FloatVectorProperty(size=4, default=(0.0, 0.0, 0.0, 0.0))
 
+class BayonettaTexture(bpy.types.PropertyGroup):
+    id: bpy.props.IntProperty(default=0)
+
 class BayoMaterialDataProperty(bpy.types.PropertyGroup):
     type: bpy.props.IntProperty(
         name="Material Type",
@@ -178,3 +181,4 @@ class BayoMaterialDataProperty(bpy.types.PropertyGroup):
     )
 
     parameters: bpy.props.CollectionProperty(type=BayonettaParameter)
+    textures: bpy.props.CollectionProperty(type=BayonettaTexture)
