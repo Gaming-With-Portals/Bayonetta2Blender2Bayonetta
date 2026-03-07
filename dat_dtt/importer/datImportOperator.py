@@ -90,10 +90,13 @@ def ImportData(only_extract, filepath, transform=None):
         # WMB
         if filename_without_extension + ".wmb" in wmb_files:
             wmb_files = [filename_without_extension + ".wmb"]
+        if "pl0010.wmb" in wmb_files: # Exception for bayonetta because it's weird
+            wmb_files = ["pl0010.wmb"] 
+
         wmb_filepath = os.path.join(extract_dir, filename_without_extension + wmb_ext, wmb_files[0])
         print("WMB Path: " + wmb_filepath)
         from ...wmb import wmb_importer
-        wmb_importer.ImportWMB(wmb_filepath, os.path.join(extract_dir, filename_without_extension + '.dat', "textures"))
+        wmb_importer.ImportWMB(wmb_filepath, os.path.join(extract_dir, filename_without_extension + '.dat', "textures"), True, True)
 
     setExportFieldsFromImportFile(filepath, True)
     enableVisibilitySelector()

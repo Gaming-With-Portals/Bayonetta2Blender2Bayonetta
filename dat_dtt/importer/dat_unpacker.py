@@ -63,7 +63,7 @@ def extract_file(fp, filename, FileOffset, Size, extract_dir):
     create_dir(extract_dir)
     fp.seek(FileOffset)
     FileContent = fp.read(Size)
-    with open(extract_dir + '/'+filename,'wb') as outfile:
+    with open(extract_dir +filename,'wb') as outfile:
         # print("extracting file %s to %s/%s"%(filename,extract_dir,filename))
         outfile.write(FileContent)
     if filename.find('wtp') > -1 and False:  # Removed due to not needed anymore when using Blender DTT import.

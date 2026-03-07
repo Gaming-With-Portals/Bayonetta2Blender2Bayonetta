@@ -62,6 +62,9 @@ class WMBVertexChunk:
 
             
             uv_layer = eval_mesh.uv_layers.active
+            if (uv_layer is None):
+                print("Warning! Mesh will not have UVs as there is no active UV layer")
+
             uv_layer_2 = eval_mesh.uv_layers.get("UVMap2", None)
             loop_map = {} 
             loop_map_2 = {}
@@ -70,7 +73,7 @@ class WMBVertexChunk:
 
             for loop in eval_mesh.loops:
                 vidx = loop.vertex_index
-                if vidx not in loop_map:
+                if vidx not in loop_map and uv_layer is not None:
                     loop_map[vidx] = uv_layer.data[loop.index].uv.copy() 
                 
                 if vidx not in loop_map_2 and uv_layer_2 is not None:
@@ -174,7 +177,7 @@ class WMBVertexChunk:
                     return (r, g, b, a)
 
                 ex_vertex_info.append(blenderColorToBayo(color_map.get(vertex.index, (0, 0, 0, 0))))
-                ex_vertex_info.append(uv_2.copy())
+                ex_vertex_info.append(uv.copy())
 
                 self.vertex_infos.append(vertex_info)
                 self.exvertex_infos.append(ex_vertex_info)
@@ -490,7 +493,8 @@ class WMBBatch():
         for global_id, local_id in sorted(batch_ref_table.items(), key=lambda x: x[1]):
             self.required_bones.append(global_id)
             if (global_id > 255 and not USE_LARGE_BONES):
-                reportError(f"Bone ID(s) outside of scope! This export will fail. Enable large bones or delete some!\nError Mesh: {parent.name}-{self.id}")
+                #reportError(f"Bone ID(s) outside of scope! This export will fail. Enable large bones or delete some!\nError Mesh: {parent.name}-{self.id}")
+                pass
 
 
         '''for group in obj.vertex_groups:

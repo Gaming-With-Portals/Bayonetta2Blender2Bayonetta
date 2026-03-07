@@ -506,7 +506,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes):
                 v = read_half_float(f.read(2))
                 f.read(1)
                 nz, ny, nx = struct.unpack('<3b', f.read(3))
-                normal = Vector((nx / 127.0, ny / 127.0, nz / 127.0))
+                normal = Vector(((ny / 127.0), -(nz / 127.0), (nx / 127.0)))
                 if normal.length == 0:
                     normal = Vector((0.0, 0.0, 1.0))
                 else:
