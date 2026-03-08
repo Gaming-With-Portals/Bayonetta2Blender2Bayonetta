@@ -269,15 +269,25 @@ class WMBMaterial:
 class WMBMaterial2:
     
 
-    def __init__(self, file, json):
+    def __init__(self, file, shader_name, size):
         self.matID = struct.unpack("<h", file.read(2))[0]
         self.flags = struct.unpack("<h", file.read(2))[0]
         self.texture_data = []
+        self.data_data = []
+        self.shader_name = shader_name
+        print(f"{size} - {(size - 24) // 4}")
         for i in range(5):
             self.texture_data.append(struct.unpack("<I", file.read(4))[0])
+        for i in range((size - 24) // 4):
+            self.data_data.append(struct.unpack("<f", file.read(4))[0])
 
 
     def toBPYMaterial(self, material_name, texture_path=""):
+        global wmb_material_list
+        global wmb_texture_list
+        if material_name in wmb_material_list:
+            return wmb_material_list[material_name]
+
         mat = bpy.data.materials.new(material_name)
         mat.bayo_data.parameters.clear()
         mat.bayo_data.type = self.matID
@@ -291,7 +301,13 @@ class WMBMaterial2:
 
             i+=1
 
+        mat["id"] = self.matID
+        mat["flags"] = self.flags
+        mat["texture_data"] = self.texture_data
+        mat["data"] = self.data_data
+        mat["shader"] = self.shader_name
 
+        wmb_material_list[material_name] = mat
         return mat
 
 
@@ -341,6 +357,8 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
         offsetInverseKinematics = struct.unpack('<I', f.read(4))[0]
         offsetBoneSymmetries = struct.unpack('<I', f.read(4))[0]
         offsetBoneFlags = struct.unpack('<I', f.read(4))[0]
+        exMatShaderNamesOffset = struct.unpack('<I', f.read(4))[0]
+        exMatSamplersOffset = struct.unpack('<I', f.read(4))[0]
 
         wmb_name = os.path.splitext(os.path.basename(filepath))[0]
 
@@ -349,19 +367,40 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
 
         wmb_collection.children.link(model_collection)
 
+        shader_names = []
+        if (exMatShaderNamesOffset != 0):
+            f.seek(exMatShaderNamesOffset)
+            for _ in range(numMaterials):
+                shader_names.append(f.read(16).decode().replace("\x00", ""))
 
+        tex_ids_to_type = {}
+        if (exMatSamplersOffset != 0):
+            f.seek(exMatSamplersOffset)
+            texCount = struct.unpack("<I", f.read(4))[0]
+            for _ in range(texCount):
+                tex_id = struct.unpack("<I", f.read(4))[0]
+                flag = struct.unpack("<I", f.read(4))[0]
+
+                tex_ids_to_type[tex_id] = flag
 
         f.seek(offsetMaterialsOffsets)
         bayonettaMaterialList = []
         materialOffsets = struct.unpack(("<" + "I"*numMaterials), f.read(4 * numMaterials))
         for x in range(numMaterials):
-            f.seek(offsetMaterials + materialOffsets[x]) # not confusing at all :fire:
+            start = materialOffsets[x]
+
+            if x == numMaterials - 1:
+                size = offsetMeshesOffsets - (offsetMaterials + start)
+            else:
+                size = materialOffsets[x+1] - start
+
+            f.seek(offsetMaterials + start) # not confusing at all :fire:
             if (bayo_2 == False):
                 materialData = WMBMaterial(f, material_json)
-                bayonettaMaterialList.append(materialData)
             else:
-                materialData = WMBMaterial2(f, material_json)
-                bayonettaMaterialList.append(materialData)
+                materialData = WMBMaterial2(f, shader_names[x], size)
+
+            bayonettaMaterialList.append(materialData)
 
 
         flag_map = {}
@@ -487,6 +526,9 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 structure = struct.unpack("<" + ("b" * 16), f.read(16))
                 arm_obj["ik_structure_" + str(i)] = structure
 
+        arm_obj["b2"] = bayo_2
+        for id, flag in tex_ids_to_type.items():
+            arm_obj[f"txtr{id}"] = flag
 
 
         # Read vertex positions separately if offset_positions is non-zero

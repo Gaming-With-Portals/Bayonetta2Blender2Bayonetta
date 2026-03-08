@@ -168,7 +168,7 @@ class WMBVertexChunk:
                 vertex_info.append(tuple(sel_indices))
                 vertex_info.append(tuple(int_weights))
                 vertex_info.append(uv.copy())
-                #vertex_info.append((uv[0], uv[1]))
+                vertex_info.append((uv[0], uv[1]))
 
                 def blenderColorToBayo(color):
                     r = int(color[0]/255)
@@ -363,9 +363,27 @@ class WMBMaterial(): # Good enough for a direct port
         #for i in self.data: # Write raw data
         #    f.write(struct.pack("<i", i))
 
+class Bayonetta2Material():
+    def __init__(self):
+        self.id = 0
+        self.flag = 0
+        self.textures = []
+        self.datas = []
+        self.shader_name = []
+
+    def fetch_size(self):
+        return 0x4 + (0x4*len(self.textures))+(0x4*len(self.datas))
+    
+    def write(self, f):
+        f.write(struct.pack("<H", self.id))
+        f.write(struct.pack("<H", self.flag))
+        for tex in self.textures:
+            f.write(struct.pack("<I", tex))
+        for data in self.datas:
+            f.write(struct.pack("<f", data))
 
 class WMBMaterialBlob:
-    def __init__(self, arm_obj, material_map):
+    def __init__(self, arm_obj, material_map, bayonetta_2):
         # Moved to the start of GenerateData, with a bit more advanced processing
         '''unique_mats = set()
         self.materials = []
@@ -381,19 +399,29 @@ class WMBMaterialBlob:
 
         self.materials = []
 
-        for i, mat in enumerate(material_map):
-            emat = WMBMaterial()
-            emat.id = i
-            emat.size = materialSizeDictionary[mat.bayo_data.type]
-            emat.flag = mat.bayo_data.flags
-            emat.type = mat.bayo_data.type
-            emat.data = mat["data"]
-            emat.formal_data = mat.bayo_data.parameters
-            self.materials.append(emat)
+        if (not bayonetta_2):
+            for i, mat in enumerate(material_map):
+                emat = WMBMaterial()
+                emat.id = i
+                emat.size = materialSizeDictionary[mat.bayo_data.type]
+                emat.flag = mat.bayo_data.flags
+                emat.type = mat.bayo_data.type
+                emat.data = mat["data"]
+                emat.formal_data = mat.bayo_data.parameters
+                self.materials.append(emat)
+
+        else:
+            for i, mat in enumerate(material_map):
+                emat = Bayonetta2Material()
+                emat.id = i
+                emat.flag = mat.get("flags", 0)
+                emat.textures = mat.get("texture_data", [])
+                emat.datas = mat.get("data", [])
+                emat.shader_name = mat.get("shader", "")
+                self.materials.append(emat)
 
 
         self.material_count = len(self.materials)
-
         self.offsets = []
         offset_ticker = 0
         for mat in self.materials:
@@ -419,7 +447,7 @@ class WMBMeshBlob():
                     self.mesh_count+=1
 
 class WMBBatch():
-    def __init__(self, parent, obj, bone_ref_table):
+    def __init__(self, parent, obj, bone_ref_table, b2):
         if ("dummy" in obj):
             self.is_dummy = obj["dummy"]
         else:
@@ -433,7 +461,12 @@ class WMBBatch():
         self.id = parent.mesh_id
         self.flags = obj["batch_flags"]
         self.exmaterial_id = 0
-        self.material_id = int(obj.get("material_id", 0))
+        self.material_id = 0
+        if (b2):
+            self.exmaterial_id = int(obj.get("material_id", 0))
+        else:
+            self.material_id = int(obj.get("material_id", 0))
+
         self.has_bone_refs = 0
         self.vertex_start = obj["vertex_start"]
         if (self.is_dummy):
@@ -521,7 +554,7 @@ class WMBBatch():
 
 
 class WMBMesh():
-    def __init__(self, arm_obj, obj, bone_ref_table):
+    def __init__(self, arm_obj, obj, bone_ref_table, b2):
         name_parts = obj.name.split("-")
         self.name = name_parts[1]
         self.exdata = obj["data"]
@@ -550,7 +583,7 @@ class WMBMesh():
         self.batch_offsets = []
         for batch_obj in bpy_batches:
             offset = align(offset, 32)
-            tmp_batch = WMBBatch(self, batch_obj, bone_ref_table)
+            tmp_batch = WMBBatch(self, batch_obj, bone_ref_table, b2)
             self.batches.append(tmp_batch)
             self.batch_offsets.append(offset)
             offset+=tmp_batch.fetch_size()
@@ -563,6 +596,23 @@ class WMBMesh():
             size += batch.fetch_size()
         return size
 
+# -- Bayonetta 2 --
+class WMBExMaterialInfo():
+    def __init__(self, arm_obj, materials):
+        self.textures = []
+        for mat in materials:
+            for tex in mat.get("texture_data", []):
+                if (tex not in self.textures):
+                    self.textures.append(tex)
+
+        self.flags = []
+        for tex in self.textures:
+            if f"txtr{tex}" not in arm_obj:
+                print(f"WARNING!! Missing texture flag for {tex}")
+
+            self.flags.append(arm_obj.get(f"txtr{tex}", 0))
+
+        
 
 class WMBDataGenerator:
     def __init__(self, colName="WMB"):
@@ -571,6 +621,8 @@ class WMBDataGenerator:
         arm_obj = sub_collection.collection.objects[0]
 
         material_remap = []
+
+        self.bayo_2 = arm_obj["b2"]
 
         i = 0
         for obj in arm_obj.children:
@@ -681,10 +733,17 @@ class WMBDataGenerator:
         else:
             self.offset_bone_flags = 0
 
+        if (self.bayo_2):
+            self.exmat_blob = WMBExMaterialInfo(arm_obj, material_remap)
+            self.exmat_offset = offset_ticker
+            offset_ticker += (8 * len(self.exmat_blob.textures)) + (len(material_remap) * 16) + 0x4
+            offset_ticker = align(offset_ticker, 32)
+
+
         ## -- MATERIAL CHUNK --
         print("[>] Generating material data...")
 
-        self.mat_blob = WMBMaterialBlob(arm_obj, material_remap)
+        self.mat_blob = WMBMaterialBlob(arm_obj, material_remap, self.bayo_2)
         self.mat_offset_offset = offset_ticker
 
         offset_ticker += 4 * self.mat_blob.material_count
@@ -719,7 +778,7 @@ class WMBDataGenerator:
             if len(name_parts) == 3:
                 if int(name_parts[2]) == 0:
                     mesh_offset_ticker = align(mesh_offset_ticker, 32)
-                    mesh_dat = WMBMesh(arm_obj, obj, bone_reference_dictionary)
+                    mesh_dat = WMBMesh(arm_obj, obj, bone_reference_dictionary, self.bayo_2)
                     self.mesh_blob.offsets.append(mesh_offset_ticker)
                     self.mesh_offsets.append(mesh_offset_ticker)
                     self.meshes.append(mesh_dat)
@@ -755,11 +814,21 @@ def WMB0_Write_HDR(f, generated_data : WMBDataGenerator):
     f.write(struct.pack("<I", generated_data.mesh_blob.mesh_count))
     f.write(struct.pack("<I", generated_data.mesh_offset_offset))
     f.write(struct.pack("<I", generated_data.mesh_offset))
+    f.write(struct.pack("<I", 0))
+    batch_count = 0
+    for mesh in generated_data.meshes:
+        batch_count += len(mesh.batches)
+
+    f.write(struct.pack("<I", batch_count)) # Num Shader Setting
 
     f.seek(100)
     f.write(struct.pack("<I", generated_data.offset_bone_inverse_kinetic_table))
     f.write(struct.pack("<I", generated_data.offset_bone_sym))
     f.write(struct.pack("<I", generated_data.offset_bone_flags))
+
+    if (generated_data.bayo_2):
+        f.write(struct.pack("<I", generated_data.exmat_offset))
+        f.write(struct.pack("<I", generated_data.exmat_offset+0x10*len(generated_data.mat_blob.materials)))
 
 def pack_tangent(v):
     return max(0, min(255, int((v * 0.5 + 0.5) * 255)))
@@ -796,8 +865,8 @@ def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
     f.seek(generated_data.offset_ex_vertexes)
     for data in generated_data.vertex_data.exvertex_infos:
         f.write(struct.pack("<bbbb", *data[0]))
-        uv_bytes = float_to_half_bytes(data[1][0]) + float_to_half_bytes(1 - data[1][1])
-        f.write(uv_bytes)
+        #uv_bytes = float_to_half_bytes(data[1][0]) + float_to_half_bytes(1 - data[1][1])
+        #f.write(uv_bytes)
 
 def WMB0_Write_BoneParents(f, generated_data : WMBDataGenerator):
     bone_map = generated_data.bone_parents.bone_map
@@ -872,6 +941,15 @@ def WMB0_Write_Mat(f, generated_data : WMBDataGenerator):
     for mat in generated_data.mat_blob.materials:
         mat.write(f)
 
+def WMB0_Write_B2_ExMaterialInfo(f, generated_data : WMBDataGenerator):
+    for mat in generated_data.mat_blob.materials:
+        f.write(mat.shader_name.ljust(16, '\x00').encode('utf-8'))
+
+    f.write(struct.pack("<I", len(generated_data.exmat_blob.textures)))
+    for i in range(len(generated_data.exmat_blob.textures)):
+        f.write(struct.pack("<I", generated_data.exmat_blob.textures[i]))
+        f.write(struct.pack("<I", generated_data.exmat_blob.flags[i]))
+
 def WMB0_Write_Mesh_Offsets(f, generated_data : WMBDataGenerator):
     for ofst in generated_data.mesh_blob.offsets:
         f.write(struct.pack("<I", ofst))
@@ -936,7 +1014,7 @@ def WMB0_Write_Mesh_Data(f, generated_data : WMBDataGenerator):
                 f.write(struct.pack("<H", indice))
 
 
-def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=False, copy_uv=True):
+def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=False, copy_uv=True, bayonetta_2=False):
     global GENERATE_TRANSLATE_TABLE
     global USE_LARGE_BONES
     global OP_INSTANCE
@@ -973,6 +1051,9 @@ def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=Fa
     WMB0_Write_Sym(f, generated_data)
     f.seek(generated_data.offset_bone_flags)
     WMB0_Write_Flags(f, generated_data) # I should have called this bone flags but oh well
+    if (generated_data.bayo_2):
+        f.seek(generated_data.exmat_offset)
+        WMB0_Write_B2_ExMaterialInfo(f, generated_data)
     f.seek(generated_data.mat_offset_offset)
     WMB0_Write_Mat_Offsets(f, generated_data)
     f.seek(generated_data.mat_offset)
