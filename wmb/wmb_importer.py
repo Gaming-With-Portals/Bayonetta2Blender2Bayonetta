@@ -310,9 +310,32 @@ class WMBMaterial2:
         wmb_material_list[material_name] = mat
         return mat
 
+def decode_bayo_switch_normal(packed_value):
+    # Ts makes NO SENSE!!!!
+    nx = packed_value & ((1 << 10) - 1)
+    ny = (packed_value >> 10) & ((1 << 10) - 1)
+    nz = (packed_value >> 20) & ((1 << 10) - 1)
+
+    def sign_extend(val):
+        sign = val & (1 << 9)
+        if sign:
+            val ^= sign
+            val = -(sign - val)
+        return val
+
+    nx = sign_extend(nx)
+    ny = sign_extend(ny)
+    nz = sign_extend(nz)
+
+    scale = float((1 << 9) - 1)
+    fx = nx / scale
+    fy = ny / scale
+    fz = nz / scale
+
+    return fx, fy, fz
 
     
-def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bayo_2=False):
+def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bayo_2=False, normal_type="PC"):
     import numpy as np
 
     def read_half_float(hf_bytes):
@@ -580,13 +603,22 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
 
                 u = read_half_float(f.read(2))
                 v = read_half_float(f.read(2))
-                f.read(1)
-                nz, ny, nx = struct.unpack('<3b', f.read(3))
-                normal = Vector(((ny / 127.0), -(nz / 127.0), (nx / 127.0)))
-                if normal.length == 0:
-                    normal = Vector((0.0, 0.0, 1.0))
+                if (normal_type == "PC"):
+                    f.read(1)
+                    nz, ny, nx = struct.unpack('<3b', f.read(3))
+                    normal = Vector(((ny / 127.0), -(nz / 127.0), (nx / 127.0)))
+                    if normal.length == 0:
+                        normal = Vector((0.0, 0.0, 1.0))
+                    else:
+                        normal.normalize()
                 else:
-                    normal.normalize()
+                    nx, ny, nz = decode_bayo_switch_normal(struct.unpack("<I", f.read(4))[0])
+
+                    normal = Vector(((ny), -(nz), (nx)))
+                    if normal.length == 0:
+                        normal = Vector((0.0, 0.0, 1.0))
+                    else:
+                        normal.normalize()
 
                 f.read(4)  # tangents - skip
 

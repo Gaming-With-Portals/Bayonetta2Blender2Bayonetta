@@ -463,9 +463,9 @@ class WMBBatch():
         self.exmaterial_id = 0
         self.material_id = 0
         if (b2):
-            self.exmaterial_id = int(obj.get("material_id", 0))
+            self.exmaterial_id = int(obj["material_id"])
         else:
-            self.material_id = int(obj.get("material_id", 0))
+            self.material_id = int(obj["material_id"])
 
         self.has_bone_refs = 0
         self.vertex_start = obj["vertex_start"]
@@ -543,6 +543,7 @@ class WMBBatch():
         else:
             self.indice_offset = align(0x40 + 0x4 + len(self.required_bones), 0x80)
 
+        print(f"[>] Generated batch from {obj.name} with material {self.material_id}/{self.exmaterial_id}")
 
 
     def fetch_size(self):
@@ -562,6 +563,10 @@ class WMBMesh():
         bpy_batches = []
         self.batches = []
         
+        self.center = (obj["data"][0], obj["data"][1], obj["data"][2])
+        self.height = obj["data"][3]
+        self.corner1 = (obj["data"][4], obj["data"][5], obj["data"][6])
+        self.corner2 = (obj["data"][7], obj["data"][8], obj["data"][9])
 
         for obj in arm_obj.children:
             if obj.type != 'MESH':
@@ -576,7 +581,11 @@ class WMBMesh():
         self.batch_count = len(bpy_batches)
         self.flags = -2147483648
         self.batch_offset_offset = 128
-        self.bounding_box_infos = 1
+
+        if (b2):
+            self.bounding_box_infos = 2
+        else:
+            self.bounding_box_infos = 1
 
         self.batch_start_offset = 4 * self.batch_count
         offset = self.batch_start_offset
@@ -587,6 +596,8 @@ class WMBMesh():
             self.batches.append(tmp_batch)
             self.batch_offsets.append(offset)
             offset+=tmp_batch.fetch_size()
+
+        print(f"[>] Generated mesh from {self.name} with {len(self.batches)} batch(es)")
 
     def fetch_size(self):
         size = self.batch_offset_offset
@@ -630,10 +641,10 @@ class WMBDataGenerator:
                 continue
             for slot in obj.material_slots:
                 if slot.material:
-                    if (not slot.material in material_remap):
+                    if slot.material not in material_remap:
                         material_remap.append(slot.material)
-                        obj["material_id"] = i
-                        i+=1
+                        i += 1
+                    obj["material_id"] = material_remap.index(slot.material)
                     break
 
         print("Automatically remapping materials...")
@@ -955,6 +966,7 @@ def WMB0_Write_Mesh_Offsets(f, generated_data : WMBDataGenerator):
         f.write(struct.pack("<I", ofst))
 
 def WMB0_Write_Mesh_Data(f, generated_data : WMBDataGenerator):
+    batch_tick = 0
     for i, mesh in enumerate(generated_data.meshes):
         mesh_pos = generated_data.mesh_offset + generated_data.mesh_offsets[i]
         f.seek(mesh_pos)
@@ -971,7 +983,14 @@ def WMB0_Write_Mesh_Data(f, generated_data : WMBDataGenerator):
         f.write(struct.pack("<i", 0))
         f.write(struct.pack("<i", 0))
         f.write(mesh.name.ljust(32, '\x00').encode('utf-8'))
-        f.write(struct.pack('<3ff3f3fff', *mesh.exdata))
+        if (generated_data.bayo_2):
+            f.write(struct.pack("<3f", *mesh.center))
+            f.write(struct.pack("<f", mesh.height))
+            f.write(struct.pack("<3f", *mesh.corner1))
+            f.write(struct.pack("<3f", *mesh.corner2))
+
+        else:
+            f.write(struct.pack('<3ff3f3fff', *mesh.exdata))
 
         f.seek(mesh_pos + mesh.batch_offset_offset)
         print(f"|- Writing batch offsets {mesh_pos + mesh.batch_offset_offset}")
@@ -983,7 +1002,7 @@ def WMB0_Write_Mesh_Data(f, generated_data : WMBDataGenerator):
             batch_offset = mesh_pos + mesh.batch_offset_offset + mesh.batch_offsets[i]
             print(f"   |- Writing batch @ {batch_offset}  | {len(batch.indices)} indice(s) @ {batch_offset + batch.indice_offset}")
             f.seek(batch_offset)
-            f.write(struct.pack("<h", batch.batch_idx))
+            f.write(struct.pack("<h", batch_tick))
             f.write(struct.pack("<h", batch.id))
             f.write(struct.pack("<H", batch.flags))
             f.write(struct.pack("<h", batch.exmaterial_id))
@@ -1012,6 +1031,8 @@ def WMB0_Write_Mesh_Data(f, generated_data : WMBDataGenerator):
             f.seek(batch_offset + batch.indice_offset)
             for indice in batch.indices:
                 f.write(struct.pack("<H", indice))
+
+            batch_tick+=1
 
 
 def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=False, copy_uv=True, bayonetta_2=False):
