@@ -32,12 +32,19 @@ def reportError(err_string):
     EXCEPT_AFTER_GENERATION = True
 
 class WMBVertexChunk:
-    def __init__(self, children, ref_table):
+    def __init__(self, children, ref_table, b2):
         self.vertex_infos = []
         self.exvertex_infos = []
         self.total_vertices = 0
         self.num_mapping = 2
         self.num_color = 1
+
+        if (b2):
+            self.num_mapping = 1
+
+        self.exvertex_size = (self.num_color*4)
+        if (self.num_mapping>1):
+            self.exvertex_size+=(self.num_mapping-1)*4
         
         vertex_ticker = 0
         for obj in children:
@@ -178,10 +185,11 @@ class WMBVertexChunk:
                     return (r, g, b, a)
 
                 ex_vertex_info.append(blenderColorToBayo(color_map.get(vertex.index, (0, 0, 0, 0))))
-                if (COPY_UV_1_AS_2):
-                    ex_vertex_info.append(uv.copy())
-                else:
-                    ex_vertex_info.append(uv_2.copy())
+                if (self.num_mapping == 2):
+                    if (COPY_UV_1_AS_2):
+                        ex_vertex_info.append(uv.copy())
+                    else:
+                        ex_vertex_info.append(uv_2.copy())
 
                 self.vertex_infos.append(vertex_info)
                 self.exvertex_infos.append(ex_vertex_info)
@@ -415,7 +423,7 @@ class WMBMaterialBlob:
                 emat = Bayonetta2Material()
                 emat.id = i
                 emat.flag = mat.get("flags", 0)
-                emat.textures = mat.get("texture_data", [])
+                emat.textures = mat.get("raw_data", [])
                 emat.datas = mat.get("data", [])
                 emat.shader_name = mat.get("shader", "")
                 self.materials.append(emat)
@@ -611,22 +619,27 @@ class WMBMesh():
 class WMBExMaterialInfo():
     def __init__(self, arm_obj, materials):
         self.textures = []
+        self.rd = []
+
         for mat in materials:
-            for tex in mat.get("texture_data", []):
-                if (tex not in self.textures):
+            for tex in mat.get("texture_ids", []):
+                if tex not in self.textures:
                     self.textures.append(tex)
+            for tex in mat.get("raw_data"):
+                self.rd.append(tex)
+            
 
         self.flags = []
         for tex in self.textures:
             if f"txtr{tex}" not in arm_obj:
                 print(f"WARNING!! Missing texture flag for {tex}")
-
             self.flags.append(arm_obj.get(f"txtr{tex}", 0))
-
         
 
 class WMBDataGenerator:
     def __init__(self, colName="WMB"):
+        ALIGN_TARGET = 64
+
         wmb_collection =  bpy.context.view_layer.layer_collection.children[colName]
         sub_collection = [x for x in wmb_collection.children if x.is_visible][0]
         arm_obj = sub_collection.collection.objects[0]
@@ -671,6 +684,9 @@ class WMBDataGenerator:
         offset_ticker = 0
         self.header_offset = 0
         self.header_size = 128
+        if (self.bayo_2):
+            self.header_size = 192
+
         self.vtx_format = sub_collection.collection["vertex_format"]
         self.bone_count = len(arm_obj.data.bones)
 
@@ -679,20 +695,20 @@ class WMBDataGenerator:
             self.has_that_one_fucked_vertex_format = True
 
         offset_ticker += self.header_size
-        offset_ticker = align(offset_ticker, 32)
+        offset_ticker = align(offset_ticker, ALIGN_TARGET)
 
         bone_reference_dictionary = {}
 
         ## -- VERTEX CHUNK A --
         self.offset_vertexes = offset_ticker
-        self.vertex_data = WMBVertexChunk(arm_obj.children, bone_reference_dictionary)
+        self.vertex_data = WMBVertexChunk(arm_obj.children, bone_reference_dictionary, self.bayo_2)
         offset_ticker += self.vertex_data.total_vertices * 32
-        offset_ticker = align(offset_ticker, 32)
+        offset_ticker = align(offset_ticker, ALIGN_TARGET)
 
         self.offset_ex_vertexes = offset_ticker
 
-        offset_ticker += self.vertex_data.total_vertices * 8
-        offset_ticker = align(offset_ticker, 32)
+        offset_ticker += self.vertex_data.total_vertices * self.vertex_data.exvertex_size
+        offset_ticker = align(offset_ticker, ALIGN_TARGET)
 
         ## -- BONE CHUNK --
         print("[>] Generating bone data...")
@@ -701,30 +717,30 @@ class WMBDataGenerator:
         self.bone_parents = WMBBoneParents(arm_obj)
 
         offset_ticker += self.bone_count * 2
-        offset_ticker = align(offset_ticker, 32)
+        offset_ticker = align(offset_ticker, ALIGN_TARGET)
         
         self.offset_bone_rel_positions = offset_ticker
         offset_ticker += self.bone_count * 12
-        offset_ticker = align(offset_ticker, 32)
+        offset_ticker = align(offset_ticker, ALIGN_TARGET)
         self.offset_bone_abs_positions = offset_ticker
 
         self.bone_positions = WMBBonePosition(arm_obj)
 
         offset_ticker += self.bone_count * 12
-        offset_ticker = align(offset_ticker, 32)
+        offset_ticker = align(offset_ticker, ALIGN_TARGET)
 
         self.offset_bone_index_translate_table = offset_ticker
 
         self.bone_index_translate_table = WMBBoneIndexTranslateTable(arm_obj)
 
         offset_ticker += self.bone_index_translate_table.size
-        offset_ticker = align(offset_ticker, 32)
+        offset_ticker = align(offset_ticker, ALIGN_TARGET)
 
         self.bone_inverse_kinetic_table = WMBInverseKinetic(arm_obj)
         if (self.bone_inverse_kinetic_table.enabled):
             self.offset_bone_inverse_kinetic_table = offset_ticker
             offset_ticker += self.bone_inverse_kinetic_table.size
-            offset_ticker = align(offset_ticker, 32)
+            offset_ticker = align(offset_ticker, ALIGN_TARGET)
         else:
             self.offset_bone_inverse_kinetic_table = 0
 
@@ -732,7 +748,7 @@ class WMBDataGenerator:
         if (self.bone_sym.enabled):
             self.offset_bone_sym = offset_ticker
             offset_ticker += self.bone_count * 2
-            offset_ticker = align(offset_ticker, 32)
+            offset_ticker = align(offset_ticker, ALIGN_TARGET)
         else:
             self.offset_bone_sym = 0
 
@@ -740,15 +756,19 @@ class WMBDataGenerator:
         if (self.bone_flags.enabled):
             self.offset_bone_flags = offset_ticker
             offset_ticker += self.bone_count
-            offset_ticker = align(offset_ticker, 32)
+            offset_ticker = align(offset_ticker, ALIGN_TARGET)
         else:
             self.offset_bone_flags = 0
 
         if (self.bayo_2):
             self.exmat_blob = WMBExMaterialInfo(arm_obj, material_remap)
             self.exmat_offset = offset_ticker
-            offset_ticker += (8 * len(self.exmat_blob.textures)) + (len(material_remap) * 16) + 0x4
-            offset_ticker = align(offset_ticker, 32)
+            offset_ticker += (len(material_remap) * 16)
+            offset_ticker = align(offset_ticker, ALIGN_TARGET)
+            self.texture_list_offset = offset_ticker
+            offset_ticker += (8 * len(self.exmat_blob.textures)) + 0x4
+
+            offset_ticker = align(offset_ticker, ALIGN_TARGET)
 
 
         ## -- MATERIAL CHUNK --
@@ -758,12 +778,13 @@ class WMBDataGenerator:
         self.mat_offset_offset = offset_ticker
 
         offset_ticker += 4 * self.mat_blob.material_count
-        offset_ticker = align(offset_ticker, 32)
+        offset_ticker = align(offset_ticker, ALIGN_TARGET)
 
         self.mat_offset = offset_ticker
 
         offset_ticker += self.mat_blob.total_size
-        offset_ticker = align(offset_ticker, 32)
+        if (not self.bayo_2):
+            offset_ticker = align(offset_ticker, ALIGN_TARGET)
         ## -- MESH CHUNK --
         print("[>] Generating mesh data...")
         self.mesh_blob = WMBMeshBlob(arm_obj)
@@ -771,7 +792,7 @@ class WMBDataGenerator:
 
         offset_ticker+=4*self.mesh_blob.mesh_count
 
-        offset_ticker = align(offset_ticker, 32)
+        offset_ticker = align(offset_ticker, ALIGN_TARGET)
         self.mesh_offset = offset_ticker
 
         self.meshes = []
@@ -839,7 +860,7 @@ def WMB0_Write_HDR(f, generated_data : WMBDataGenerator):
 
     if (generated_data.bayo_2):
         f.write(struct.pack("<I", generated_data.exmat_offset))
-        f.write(struct.pack("<I", generated_data.exmat_offset+0x10*len(generated_data.mat_blob.materials)))
+        f.write(struct.pack("<I", generated_data.texture_list_offset))
 
 def pack_tangent(v):
     return max(0, min(255, int((v * 0.5 + 0.5) * 255)))
@@ -876,8 +897,9 @@ def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
     f.seek(generated_data.offset_ex_vertexes)
     for data in generated_data.vertex_data.exvertex_infos:
         f.write(struct.pack("<bbbb", *data[0]))
-        #uv_bytes = float_to_half_bytes(data[1][0]) + float_to_half_bytes(1 - data[1][1])
-        #f.write(uv_bytes)
+        if (generated_data.vertex_data.num_mapping == 2):
+            uv_bytes = float_to_half_bytes(data[1][0]) + float_to_half_bytes(1 - data[1][1])
+            f.write(uv_bytes)
 
 def WMB0_Write_BoneParents(f, generated_data : WMBDataGenerator):
     bone_map = generated_data.bone_parents.bone_map
@@ -956,6 +978,7 @@ def WMB0_Write_B2_ExMaterialInfo(f, generated_data : WMBDataGenerator):
     for mat in generated_data.mat_blob.materials:
         f.write(mat.shader_name.ljust(16, '\x00').encode('utf-8'))
 
+    f.seek(generated_data.texture_list_offset)
     f.write(struct.pack("<I", len(generated_data.exmat_blob.textures)))
     for i in range(len(generated_data.exmat_blob.textures)):
         f.write(struct.pack("<I", generated_data.exmat_blob.textures[i]))

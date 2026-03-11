@@ -269,12 +269,13 @@ class WMBMaterial:
 class WMBMaterial2:
     
 
-    def __init__(self, file, shader_name, size):
+    def __init__(self, file, shader_name, size, ids):
         self.matID = struct.unpack("<h", file.read(2))[0]
         self.flags = struct.unpack("<h", file.read(2))[0]
         self.texture_data = []
         self.data_data = []
         self.shader_name = shader_name
+        self.tex_id_list = ids
         print(f"{size} - {(size - 24) // 4}")
         for i in range(5):
             self.texture_data.append(struct.unpack("<I", file.read(4))[0])
@@ -303,7 +304,18 @@ class WMBMaterial2:
 
         mat["id"] = self.matID
         mat["flags"] = self.flags
-        mat["texture_data"] = self.texture_data
+
+        self.texture_ids = []
+        self.texture_datas = []
+        for tex in self.texture_data:
+            if (tex in self.tex_id_list):
+                self.texture_ids.append(tex)
+            else:
+                self.texture_datas.append(tex)
+
+        mat["texture_ids"] = self.texture_ids
+        mat["texture_data"] = self.texture_datas
+        mat["raw_data"] = self.texture_data
         mat["data"] = self.data_data
         mat["shader"] = self.shader_name
 
@@ -397,13 +409,14 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 shader_names.append(f.read(16).decode().replace("\x00", ""))
 
         tex_ids_to_type = {}
+        tex_ids = []
         if (exMatSamplersOffset != 0):
             f.seek(exMatSamplersOffset)
             texCount = struct.unpack("<I", f.read(4))[0]
             for _ in range(texCount):
                 tex_id = struct.unpack("<I", f.read(4))[0]
                 flag = struct.unpack("<I", f.read(4))[0]
-
+                tex_ids.append(tex_id)
                 tex_ids_to_type[tex_id] = flag
 
         f.seek(offsetMaterialsOffsets)
@@ -421,7 +434,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
             if (bayo_2 == False):
                 materialData = WMBMaterial(f, material_json)
             else:
-                materialData = WMBMaterial2(f, shader_names[x], size)
+                materialData = WMBMaterial2(f, shader_names[x], size, tex_ids)
 
             bayonettaMaterialList.append(materialData)
 
