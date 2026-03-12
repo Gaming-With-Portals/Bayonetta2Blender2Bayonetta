@@ -13,6 +13,7 @@ USE_LARGE_BONES = False
 OP_INSTANCE = None
 EXCEPT_AFTER_GENERATION = False
 COPY_UV_1_AS_2 = True
+BAYONETTA_2 = False
 
 bone_name_to_id_map = {}
 
@@ -31,7 +32,33 @@ def reportError(err_string):
     OP_INSTANCE.report({'ERROR'}, err_string)
     EXCEPT_AFTER_GENERATION = True
 
+def pack_b2_normal(fx, fy, fz):
+        scale = float((1 << 9) - 1) 
+
+        nx = int(round(fx * scale))
+        ny = int(round(fy * scale))
+        nz = int(round(fz * scale))
+        
+        nx = max(-511, min(511, nx))
+        ny = max(-511, min(511, ny))
+        nz = max(-511, min(511, nz))
+        
+        def sign_pack(val):
+            if val < 0:
+                sign = (1 << 9)
+                val = sign + val 
+                val |= sign
+            return val & ((1 << 10) - 1)
+        
+        nx = sign_pack(nx)
+        ny = sign_pack(ny)
+        nz = sign_pack(nz)
+
+        return nx | (ny << 10) | (nz << 20)
+
 class WMBVertexChunk:
+
+
     def __init__(self, children, ref_table, b2):
         self.vertex_infos = []
         self.exvertex_infos = []
@@ -494,7 +521,6 @@ class WMBBatch():
         self.unknownE1 = obj["unknownE1"]
         self.unknownE2 = obj["unknownE2"]
         
-        batch_ref_table = bone_ref_table[obj.name]
 
         mesh = obj.data
         bm = bmesh.new()
@@ -532,9 +558,6 @@ class WMBBatch():
         
         for global_id, local_id in sorted(batch_ref_table.items(), key=lambda x: x[1]):
             self.required_bones.append(global_id)
-            if (global_id > 255 and not USE_LARGE_BONES):
-                #reportError(f"Bone ID(s) outside of scope! This export will fail. Enable large bones or delete some!\nError Mesh: {parent.name}-{self.id}")
-                pass
 
 
         '''for group in obj.vertex_groups:
@@ -646,7 +669,13 @@ class WMBDataGenerator:
 
         material_remap = []
 
+        if ("b2" not in arm_obj):
+            arm_obj["b2"] = False # Assume not b2
+
         self.bayo_2 = arm_obj["b2"]
+        if (self.bayo_2):
+            self.ex_mat_A = arm_obj["exmatinfo"][0]
+            self.ex_mat_B = arm_obj["exmatinfo"][1]
 
         i = 0
         for obj in arm_obj.children:
@@ -665,21 +694,62 @@ class WMBDataGenerator:
             print(f"[>] ID: {i:02} NAME: {material.name}")
 
 
-        # make up some shi
-        current_highest_id = 0
-        for bone in arm_obj.data.bones:
-            if "id" in bone:
-                if bone["id"] > current_highest_id:
-                    current_highest_id = bone["id"] + 1
+        '''# make up some shi
+        if (self.bayo_2):
+            for bone in arm_obj.data.bones:
+                bone_name_to_id_map[bone.name] = bone["local_id"]
 
-        for bone in arm_obj.data.bones:
+        else:
+            current_highest_id = 0
+            for bone in arm_obj.data.bones:
+                if "id" in bone:
+                    if bone["id"] > current_highest_id:
+                        current_highest_id = bone["id"] 
+
+            current_highest_id += 1 
+
+            for bone in arm_obj.data.bones:
+                if "id" not in bone:
+                    bone["id"] = current_highest_id
+                    current_highest_id+=1 
+
+            for i, bone in enumerate(sorted(arm_obj.data.bones, key=lambda x: x["id"])):
+                bone_name_to_id_map[bone.name] = i # Come up with some ids for local bones, these can be entirely arbitrary'''
+
+        bone_ready_list = []
+        bones = arm_obj.data.bones
+        highest_local_id = 0
+        highest_global_id = 0
+
+        for bone in bones:
+            if ("local_id" in bone):
+                bone_name_to_id_map[bone.name] = bone["local_id"]
+                bone_ready_list.append(bone.name)
+                if (bone["local_id"] > highest_local_id):
+                    highest_local_id = bone["local_id"] + 1
+            if ("id" in bone):
+                if (bone["id"] > highest_global_id and bone["id"] < 1000):
+                    highest_global_id = bone["id"] + 1
+
+        print(f"Greatest Local ID: {highest_local_id}")
+        print(f"Greatest Global ID: {highest_global_id}")
+
+        for bone in bones:
             if "id" not in bone:
-                bone["id"] = current_highest_id
-                current_highest_id+=1 
+                bone["id"] = highest_global_id
+                highest_global_id += 1
 
-
-        for i, bone in enumerate(sorted(arm_obj.data.bones, key=lambda x: x["id"])):
-            bone_name_to_id_map[bone.name] = i # Come up with some ids for local bones, these can be entirely arbitrary
+        if len(bone_ready_list) == 0:
+            # No local_ids at all - fall back to old behaviour: sort by global id, reindex to 0..n
+            for i, bone in enumerate(sorted(bones, key=lambda x: x["id"])):
+                bone_name_to_id_map[bone.name] = i
+        else:
+            # Some or all bones have local_id - assign remaining ones sequentially
+            for bone in bones:
+                if bone.name not in bone_ready_list:
+                    print(f"Assigning {bone.name} to Local ID {highest_local_id}")
+                    bone_name_to_id_map[bone.name] = highest_local_id
+                    highest_local_id += 1
 
         offset_ticker = 0
         self.header_offset = 0
@@ -861,6 +931,8 @@ def WMB0_Write_HDR(f, generated_data : WMBDataGenerator):
     if (generated_data.bayo_2):
         f.write(struct.pack("<I", generated_data.exmat_offset))
         f.write(struct.pack("<I", generated_data.texture_list_offset))
+        f.write(struct.pack("<I", generated_data.ex_mat_A))
+        f.write(struct.pack("<I", generated_data.ex_mat_B))
 
 def pack_tangent(v):
     return max(0, min(255, int((v * 0.5 + 0.5) * 255)))
@@ -871,13 +943,20 @@ def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
         f.write(struct.pack("<fff", *data[0]))
         f.write(uv_bytes)
 
-        nx = int(round(data[1][0] * 127))
-        ny = int(round(data[1][1] * 127))
-        nz = int(round(data[1][2] * 127))
+        if (generated_data.bayo_2):
+            f.write(struct.pack('<I', pack_b2_normal(data[1][2] * -1, data[1][0], data[1][1]))) # Normals
 
-        nx = max(-127, min(127, nx))
-        ny = max(-127, min(127, ny))
-        nz = max(-127, min(127, nz))
+        else:
+            nx = int(round(data[1][0] * 127))
+            ny = int(round(data[1][1] * 127))
+            nz = int(round(data[1][2] * 127))
+
+            nx = max(-127, min(127, nx))
+            ny = max(-127, min(127, ny))
+            nz = max(-127, min(127, nz))
+
+
+            f.write(struct.pack('<4b', 0, ny, -nz, nx)) # Normals
 
         tx, ty, tz, d = data[2]
         tangent_bytes = bytes([
@@ -886,9 +965,7 @@ def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
             pack_tangent(tz),
             pack_tangent(d)
         ])
-        
 
-        f.write(struct.pack('<4b', 0, ny, -nz, nx)) # Normals
         f.write(tangent_bytes)
         f.write(struct.pack("<BBBB", *data[3])) # Bone Indexes
         f.write(struct.pack("<BBBB", *data[4])) # Bone Weights

@@ -394,6 +394,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
         offsetBoneFlags = struct.unpack('<I', f.read(4))[0]
         exMatShaderNamesOffset = struct.unpack('<I', f.read(4))[0]
         exMatSamplersOffset = struct.unpack('<I', f.read(4))[0]
+        exMatInfo = struct.unpack('<II', f.read(8))
 
         wmb_name = os.path.splitext(os.path.basename(filepath))[0]
 
@@ -465,6 +466,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
 
             # Bullshit bone remap thing, check later
             bone_name_map = {}
+            local_bone_name_map = {}
             bone_id_map = {}
             if offsetBoneIndexTranslateTable:
                 parts_map = []
@@ -514,9 +516,10 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
             print(bone_name_map)
             edit_bones = {}
             for i in range(numBones):
-                bone_name = bone_name_map.get(i, f"bone{i:03}")
+                bone_name = bone_name_map.get(i, f"bone{i:04}")
                 bone_id = bone_id_map.get(i, -1)
                 bone = arm_data.edit_bones.new(bone_name)
+                bone["local_id"] = i
                 raw = bone_abs_positions[i]
                 converted = Vector((raw.x, -raw.z, raw.y))
                 bone.head = converted
@@ -563,6 +566,9 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 arm_obj["ik_structure_" + str(i)] = structure
 
         arm_obj["b2"] = bayo_2
+        if (bayo_2):
+            arm_obj["exmatinfo"] = exMatInfo
+
         for id, flag in tex_ids_to_type.items():
             arm_obj[f"txtr{id}"] = flag
 
