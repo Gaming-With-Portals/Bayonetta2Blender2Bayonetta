@@ -8,6 +8,7 @@ from mathutils import Vector
 import bmesh
 from .wmb_materials import materialSizeDictionary
 from .wmb_bone_names import getBoneName
+from ..structwrapper import BinReader
 
 wmb_material_list = {}
 wmb_texture_list = {}
@@ -52,9 +53,9 @@ class WMBVector:
     y = 0 
     z = 0
     def __init__(self, file):
-        self.x = struct.unpack("<f", file.read(4))
-        self.y = struct.unpack("<f", file.read(4))
-        self.z = struct.unpack("<f", file.read(4))
+        self.x = struct.unpack("<f", file.read_float32())
+        self.y = struct.unpack("<f", file.read_float32())
+        self.z = struct.unpack("<f", file.read_float32())
 
 class WMBBatchHeader:
     batchIdx = 0
@@ -72,21 +73,21 @@ class WMBBatchHeader:
     numIndices = 0
     vertexOffset = 0
 
-    def __init__(self, file):
-        self.batchIdx = struct.unpack("<h", file.read(2))[0]
-        self.id = struct.unpack("<h", file.read(2))[0]        
-        self.flags = struct.unpack("<H", file.read(2))[0]         
-        self.exMaterialID = struct.unpack("<h", file.read(2))[0]   
-        self.materialID = struct.unpack("<B", file.read(1))[0]
-        self.hasBoneRefs = struct.unpack("<B", file.read(1))[0]
-        self.unknownE1 = struct.unpack("<B", file.read(1))[0]
-        self.unknownE2 = struct.unpack("<B", file.read(1))[0]
-        self.vertexStart = struct.unpack("<I", file.read(4))[0]
-        self.vertexEnd = struct.unpack("<I", file.read(4))[0]
-        self.primativeType = struct.unpack("<i", file.read(4))[0]
-        self.offsetIndices = struct.unpack("<I", file.read(4))[0]
-        self.numIndices = struct.unpack("<i", file.read(4))[0]
-        self.vertexOffset = struct.unpack("<i", file.read(4))[0]
+    def __init__(self, file : BinReader):
+        self.batchIdx = file.read_s16()
+        self.id = file.read_s16()
+        self.flags = file.read_u16()
+        self.exMaterialID = file.read_s16()
+        self.materialID = file.read_u8()
+        self.hasBoneRefs = file.read_u8()
+        self.unknownE1 = file.read_u8()
+        self.unknownE2 = file.read_u8()
+        self.vertexStart = file.read_u32()
+        self.vertexEnd = file.read_u32()
+        self.primativeType = file.read_u32()
+        self.offsetIndices = file.read_u32()
+        self.numIndices = file.read_u32()
+        self.vertexOffset = file.read_u32()
 
 class WMBMesh:
     id = 0
@@ -103,21 +104,21 @@ class WMBMesh:
     unknownD = 0
     unknownE = 0
 
-    def __init__(self, file):
-        self.id = struct.unpack("<h", file.read(2))[0]
-        self.batchCount = struct.unpack("<h", file.read(2))[0]
-        self.unknownA1 = struct.unpack("<h", file.read(2))[0]
-        self.boundingBoxInfos = struct.unpack("<h", file.read(2))[0]
-        self.offsetBatchOffsets = struct.unpack("<I", file.read(4))[0]
-        self.flags = struct.unpack("<i", file.read(4))[0]
+    def __init__(self, file : BinReader):
+        self.id = file.read_s16()
+        self.batchCount = file.read_s16()
+        self.unknownA1 = file.read_s16()
+        self.boundingBoxInfos = file.read_s16()
+        self.offsetBatchOffsets = file.read_u32()
+        self.flags = file.read_s32()
         file.read(16)
         self.name = file.read(32).decode()
         self.center = WMBVector(file)
-        self.height = struct.unpack("<f", file.read(4))[0]
+        self.height = file.read_float32()
         self.corner1 = WMBVector(file)
         self.corner2 = WMBVector(file)  
-        self.unknownD = struct.unpack("<f", file.read(4))[0]
-        self.unknownE = struct.unpack("<f", file.read(4))[0]            
+        self.unknownD = file.read_float32()
+        self.unknownE = file.read_float32()         
 
 class WMBMaterial:
     matID = 0
@@ -127,10 +128,10 @@ class WMBMaterial:
     sampler_2_id = 0
 
     bpyMaterial = None
-    def __init__(self, file, json=None):
+    def __init__(self, file : BinReader, json=None):
         self.parameter_data = {}
-        self.matID = struct.unpack("<h", file.read(2))[0]
-        self.flags = struct.unpack("<h", file.read(2))[0]
+        self.matID = file.read_s16()
+        self.flags = file.read_s16()
         datasize = materialSizeDictionary[self.matID] - 4
         data_start = file.tell()
         
@@ -143,25 +144,25 @@ class WMBMaterial:
                 file.seek(data_start)
                 for param_name, param_type in self.layout.items():
                     if param_type == "sampler2D_t" or param_type == "samplerCUBE_t":
-                        self.parameter_data[param_name] = (struct.unpack("<i", file.read(4)))[0]
+                        self.parameter_data[param_name] = file.read_s32()
                     elif param_type == "f4_float3_t":
-                        self.parameter_data[param_name] = (struct.unpack("<fff", file.read(12)))
+                        self.parameter_data[param_name] = (struct.unpack(f"{file.end_flag}fff", file.read(12)))
                         file.read(4)
                     elif param_type == "f4_float2_t":
-                        self.parameter_data[param_name] = (struct.unpack("<ff", file.read(8)))
+                        self.parameter_data[param_name] = (struct.unpack(f"{file.end_flag}ff", file.read(8)))
                         file.read(8)
                     elif param_type == "f4_float_t":
-                        self.parameter_data[param_name] = (struct.unpack("<f", file.read(4)))[0]
+                        self.parameter_data[param_name] = file.read_float32()
                         file.read(12)
                     else:
-                        self.parameter_data[param_name] = (struct.unpack("<ffff", file.read(16)))
+                        self.parameter_data[param_name] = (struct.unpack(f"{file.end_flag}ffff", file.read(16)))
 
                     
 
             else:
                 print("Material type isn't in the JSON... it may be invalid.")
         file.seek(data_start)
-        self.data = struct.unpack("<" + str(datasize // 4) + "i", file.read(materialSizeDictionary[self.matID] - 4))
+        self.data = struct.unpack(file.end_flag + str(datasize // 4) + "i", file.read(materialSizeDictionary[self.matID] - 4))
         self.sampler_1_id = self.data[0]
         self.sampler_2_id = self.data[1]
 
@@ -347,7 +348,7 @@ def decode_bayo_switch_normal(packed_value):
     return fx, fy, fz
 
     
-def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bayo_2=False, normal_type="PC"):
+def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bayo_2=False, normal_type="B1"):
     import numpy as np
 
     def read_half_float(hf_bytes):
@@ -361,40 +362,65 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
         with open(json_path, "rt", encoding="utf-8") as f:
             material_json = json.load(f)
 
+    is_wii = False
 
-
-    wmb_collection = bpy.data.collections.new("WMB")
-    bpy.context.scene.collection.children.link(wmb_collection)
+    if ("WMB" not in bpy.data.collections):
+        wmb_collection = bpy.data.collections.new("WMB")
+        bpy.context.scene.collection.children.link(wmb_collection)
+    else:
+        wmb_collection = bpy.data.collections["WMB"]
+    
+    
     with open(filepath, 'rb') as f:
-        f.seek(8)
-        vertexFormat = struct.unpack('<I', f.read(4))[0]
-        num_vertices = struct.unpack('<I', f.read(4))[0]
-        num_uvmaps = struct.unpack('<B', f.read(1))[0]
-        num_colors = struct.unpack('<B', f.read(1))[0]
-        f.read(2)
-        offset_positions = struct.unpack('<I', f.read(4))[0]
-        offset_vertices = struct.unpack('<I', f.read(4))[0]
-        offset_vertices_extra = struct.unpack('<I', f.read(4))[0]
-        f.read(16)
-        numBones = struct.unpack('<I', f.read(4))[0]
-        offsetBoneHierarchy = struct.unpack('<I', f.read(4))[0]
-        offsetBoneRelativePosition = struct.unpack('<I', f.read(4))[0]
-        offsetBonePositions = struct.unpack('<I', f.read(4))[0]
-        offsetBoneIndexTranslateTable = struct.unpack('<I', f.read(4))[0]
-        numMaterials = struct.unpack('<I', f.read(4))[0]
-        offsetMaterialsOffsets = struct.unpack('<I', f.read(4))[0]
-        offsetMaterials = struct.unpack('<I', f.read(4))[0]
-        numMeshes = struct.unpack('<I', f.read(4))[0]
-        offsetMeshesOffsets = struct.unpack('<I', f.read(4))[0]
-        offsetMeshes = struct.unpack('<I', f.read(4))[0]
-        numPolygons = struct.unpack('<I', f.read(4))[0]
-        numShaderSettings = struct.unpack('<I', f.read(4))[0]
-        offsetInverseKinematics = struct.unpack('<I', f.read(4))[0]
-        offsetBoneSymmetries = struct.unpack('<I', f.read(4))[0]
-        offsetBoneFlags = struct.unpack('<I', f.read(4))[0]
-        exMatShaderNamesOffset = struct.unpack('<I', f.read(4))[0]
-        exMatSamplersOffset = struct.unpack('<I', f.read(4))[0]
-        exMatInfo = struct.unpack('<II', f.read(8))
+        wf = BinReader(f)
+        if (wf.read(4).decode() == "\x00BMW"):
+            print("Wii U/Xbox 360/PS3 (Big Endian) file!")
+            wf.big = True
+            is_wii = True
+            normal_type = "B1_WII_U"
+            wf.update_endianess_flag()
+
+        wf.seek(8)
+        vertexFormat = wf.read_u32()
+        num_vertices =wf.read_u32()
+        num_uvmaps = wf.read_u8()
+        num_colors = wf.read_u8()
+        wf.advance(2)
+        offset_positions = wf.read_u32()
+        offset_vertices = wf.read_u32()
+        offset_vertices_extra = wf.read_u32()
+        wf.advance(16)
+        numBones = wf.read_u32()
+        offsetBoneHierarchy = wf.read_u32()
+        offsetBoneRelativePosition = wf.read_u32()
+        offsetBonePositions = wf.read_u32()
+        offsetBoneIndexTranslateTable = wf.read_u32()
+        numMaterials = wf.read_u32()
+        offsetMaterialsOffsets = wf.read_u32()
+        offsetMaterials = wf.read_u32()
+        numMeshes = wf.read_u32()
+        offsetMeshesOffsets = wf.read_u32()
+        offsetMeshes = wf.read_u32()
+        numPolygons = wf.read_u32()
+        numShaderSettings = wf.read_u32()
+        offsetInverseKinematics = wf.read_u32()
+        offsetBoneSymmetries = wf.read_u32()
+        offsetBoneFlags = wf.read_u32()
+        exMatShaderNamesOffset = wf.read_u32()
+        exMatSamplersOffset = wf.read_u32()
+        exMatInfo = (wf.read_u32(), wf.read_u32())
+
+        if (exMatSamplersOffset != 0 and exMatShaderNamesOffset != 0):
+            normal_type="B2"
+            bayo_2 = True
+
+        if (not bayo_2):
+            if (vertexFormat != 0x4000001F):
+                wf.seek(offset_vertices+0x10)
+                if (wf.read_u8() != 0):
+                    normal_type = "B1_NINTENDO_SWITCH"
+
+        print(f"Normal type is {normal_type}")
 
         wmb_name = os.path.splitext(os.path.basename(filepath))[0]
 
@@ -405,24 +431,24 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
 
         shader_names = []
         if (exMatShaderNamesOffset != 0):
-            f.seek(exMatShaderNamesOffset)
+            wf.seek(exMatShaderNamesOffset)
             for _ in range(numMaterials):
-                shader_names.append(f.read(16).decode().replace("\x00", ""))
+                shader_names.append(wf.read(16).decode().replace("\x00", ""))
 
         tex_ids_to_type = {}
         tex_ids = []
         if (exMatSamplersOffset != 0):
-            f.seek(exMatSamplersOffset)
-            texCount = struct.unpack("<I", f.read(4))[0]
+            wf.seek(exMatSamplersOffset)
+            texCount = wf.read_u32()
             for _ in range(texCount):
-                tex_id = struct.unpack("<I", f.read(4))[0]
-                flag = struct.unpack("<I", f.read(4))[0]
+                tex_id = wf.read_u32()
+                flag = wf.read_u32()
                 tex_ids.append(tex_id)
                 tex_ids_to_type[tex_id] = flag
 
-        f.seek(offsetMaterialsOffsets)
+        wf.seek(offsetMaterialsOffsets)
         bayonettaMaterialList = []
-        materialOffsets = struct.unpack(("<" + "I"*numMaterials), f.read(4 * numMaterials))
+        materialOffsets = wf.read_u32_array(numMaterials)
         for x in range(numMaterials):
             start = materialOffsets[x]
 
@@ -431,20 +457,20 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
             else:
                 size = materialOffsets[x+1] - start
 
-            f.seek(offsetMaterials + start) # not confusing at all :fire:
+            wf.seek(offsetMaterials + start) # not confusing at all :fire:
             if (bayo_2 == False):
-                materialData = WMBMaterial(f, material_json)
+                materialData = WMBMaterial(wf, material_json) # TODO: Use WF System
             else:
-                materialData = WMBMaterial2(f, shader_names[x], size, tex_ids)
+                materialData = WMBMaterial2(wf, shader_names[x], size, tex_ids) # TODO: Use WF System
 
             bayonettaMaterialList.append(materialData)
 
 
         flag_map = {}
         if (offsetBoneFlags != 0):
-            f.seek(offsetBoneFlags)
+            wf.seek(offsetBoneFlags)
             for i in range(numBones):
-                flag_map[i] = struct.unpack("<B", f.read(1))[0]
+                flag_map[i] = wf.read_u8()
 
         # build skel
         if numBones > 0:
@@ -455,14 +481,14 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
             bpy.ops.object.mode_set(mode='EDIT')
 
             # bone hierarchy
-            f.seek(offsetBoneHierarchy)
-            bone_parents = [struct.unpack('<h', f.read(2))[0] for _ in range(numBones)]
+            wf.seek(offsetBoneHierarchy)
+            bone_parents = [wf.read_s16() for _ in range(numBones)]
 
             arm_obj["bone_hierarchy"] = bone_parents # this really shouldn't be that bad
 
             # absolute positions
-            f.seek(offsetBonePositions)
-            bone_abs_positions = [Vector(struct.unpack('<3f', f.read(12))) for _ in range(numBones)]
+            wf.seek(offsetBonePositions)
+            bone_abs_positions = [Vector(wf.read_f32_vector3()) for _ in range(numBones)]
 
             # Bullshit bone remap thing, check later
             bone_name_map = {}
@@ -470,9 +496,9 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
             bone_id_map = {}
             if offsetBoneIndexTranslateTable:
                 parts_map = []
-                f.seek(offsetBoneIndexTranslateTable)
+                wf.seek(offsetBoneIndexTranslateTable)
 
-                l1_table = [struct.unpack('<H', f.read(2))[0] for _ in range(16)]
+                l1_table = [wf.read_u16() for _ in range(16)]
 
                 for l1_index in range(16):
                     l2_offset = l1_table[l1_index]
@@ -480,14 +506,14 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                         continue
 
                     for l2_index in range(16):
-                        f.seek(offsetBoneIndexTranslateTable + ((l2_offset + l2_index) * 2))
-                        l3_offset = struct.unpack('<H', f.read(2))[0]
+                        wf.seek(offsetBoneIndexTranslateTable + ((l2_offset + l2_index) * 2))
+                        l3_offset = wf.read_u16()
                         if l3_offset == 0xFFFF:
                             continue
 
                         for l3_index in range(16):
-                            f.seek(offsetBoneIndexTranslateTable + ((l3_offset + l3_index) * 2))
-                            parts_index = struct.unpack('<H', f.read(2))[0]
+                            wf.seek(offsetBoneIndexTranslateTable + ((l3_offset + l3_index) * 2))
+                            parts_index = wf.read_u16()
                             if parts_index != 0xFFF:
                                 parts_no = (l1_index << 8) | (l2_index << 4) | l3_index
                                 parts_map.append((parts_no, parts_index))                            
@@ -498,22 +524,21 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                     bone_id_map[item[1]] = item[0]
 
 
-                f.seek(offsetBoneIndexTranslateTable) # TODO, nuke from orbit
+                wf.seek(offsetBoneIndexTranslateTable) # TODO, nuke from orbit
                 # first level
-                first_level = [struct.unpack('<h', f.read(2))[0] for _ in range(16)]
+                first_level = [wf.read_s16() for _ in range(16)]
                 j = sum(1 for val in first_level if val != -1 and val != 4095)
                 arm_obj["translate_table_1"] = first_level
                 # second level
-                second_level = [struct.unpack('<h', f.read(2))[0] for _ in range(j * 16)]
+                second_level = [wf.read_s16() for _ in range(j * 16)]
                 k = sum(1 for val in second_level if val != -1 and val != 4095)
                 arm_obj["translate_table_2"] = second_level
                 # third level
-                third_level = [struct.unpack('<h', f.read(2))[0] for _ in range(k * 16)]
+                third_level = [wf.read_s16() for _ in range(k * 16)]
                 arm_obj["translate_table_3"] = third_level
                 arm_obj["translate_table_size"] = f.tell() - offsetBoneIndexTranslateTable
 
-                        
-            print(bone_name_map)
+
             edit_bones = {}
             for i in range(numBones):
                 bone_name = bone_name_map.get(i, f"bone{i:04}")
@@ -553,16 +578,16 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
         arm_obj["inverse_kinematics"] = False
         if (offsetInverseKinematics != 0):
             arm_obj["inverse_kinematics"] = True
-            f.seek(offsetInverseKinematics)
-            kincount = struct.unpack("<b", f.read(1))[0]
-            other_data = struct.unpack("<bbb", f.read(3))
-            offset = struct.unpack("<i", f.read(4))[0]
+            wf.seek(offsetInverseKinematics)
+            kincount = wf.read_s8()
+            other_data = wf.read_s8_array(3)
+            offset = wf.read_s32()
             arm_obj["ik_count"] = kincount
             arm_obj["ik_offset"] = offset
             arm_obj["ik_unk"] = other_data
-            f.seek(offsetInverseKinematics + offset)
+            wf.seek(offsetInverseKinematics + offset)
             for i in range(kincount):
-                structure = struct.unpack("<" + ("b" * 16), f.read(16))
+                structure = wf.read_s8_array(16)
                 arm_obj["ik_structure_" + str(i)] = structure
 
         arm_obj["b2"] = bayo_2
@@ -578,31 +603,31 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
 
         if vertexFormat == 0x4000001F:
             # read positions from offset_positions
-            f.seek(offset_positions)
-            positions = [struct.unpack('<3f', f.read(12)) for _ in range(num_vertices)]
+            wf.seek(offset_positions)
+            positions = [wf.read_f32_vector3() for _ in range(num_vertices)]
 
             # now read the rest of the vertex data
-            f.seek(offset_vertices)
+            wf.seek(offset_vertices)
 
             for i in range(num_vertices):
                 px, py, pz = positions[i]
 
                 # Normal as 3 floats
-                nx, ny, nz = struct.unpack('<3f', f.read(12))
+                nx, ny, nz = wf.read_f32_vector3()
                 normal = Vector((nx, ny, nz))
                 if normal.length == 0:
                     normal = Vector((0.0, 0.0, 1.0))
                 else:
                     normal.normalize()
 
-                r, g, b, a = struct.unpack('<4B', f.read(4))
+                r, g, b, a = wf.read_u8_array(4)
                 vcolor.append((r / 255.0, g / 255.0, b / 255.0, a / 255.0))
-                f.read(4)  # tangents - skip
+                wf.advance(4)  # tangents - skip
 
-                bone_ids = struct.unpack('<4B', f.read(4))
-                bone_weights_raw = struct.unpack('<4B', f.read(4))
+                bone_ids = wf.read_u8_array(4)
+                bone_weights_raw = wf.read_u8_array(4)
 
-                u, v = struct.unpack('<2f', f.read(8))  # UVs as full floats
+                u, v = wf.read_float32(), wf.read_float32()  # UVs as full floats
 
                 weights_sum = sum(bone_weights_raw)
                 if weights_sum == 0:
@@ -615,23 +640,23 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 vertex_groups_data.append(list(zip(bone_ids, bone_weights)))
 
         else:
-            f.seek(offset_vertices)
+            wf.seek(offset_vertices)
 
             for i in range(num_vertices):
-                px, py, pz = struct.unpack('<3f', f.read(12))
+                px, py, pz = wf.read_f32_vector3()
 
-                u = read_half_float(f.read(2))
-                v = read_half_float(f.read(2))
-                if (normal_type == "PC"):
-                    f.read(1)
-                    nz, ny, nx = struct.unpack('<3b', f.read(3))
+                u = read_half_float(wf.read(2))
+                v = read_half_float(wf.read(2))
+                if (normal_type == "B1"):
+                    wf.advance(1)
+                    nz, ny, nx = wf.read_s8_array(3)
                     normal = Vector(((ny / 127.0), -(nz / 127.0), (nx / 127.0)))
                     if normal.length == 0:
                         normal = Vector((0.0, 0.0, 1.0))
                     else:
                         normal.normalize()
                 else:
-                    nx, ny, nz = decode_bayo_switch_normal(struct.unpack("<I", f.read(4))[0])
+                    nx, ny, nz = decode_bayo_switch_normal(wf.read_u32())
 
                     normal = Vector(((ny), -(nz), (nx)))
                     if normal.length == 0:
@@ -639,10 +664,10 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                     else:
                         normal.normalize()
 
-                f.read(4)  # tangents - skip
+                wf.advance(4)  # tangents - skip
 
-                bone_ids = struct.unpack('<4B', f.read(4))
-                bone_weights_raw = struct.unpack('<4B', f.read(4))
+                bone_ids = wf.read_u8_array(4)
+                bone_weights_raw = wf.read_u8_array(4)
 
                 weights_sum = sum(bone_weights_raw)
                 if weights_sum == 0:
@@ -658,46 +683,43 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
         uv2s = []
 
         if vertexFormat != 0x4000001F and offset_vertices_extra > 0:
-            f.seek(offset_vertices_extra)
+            wf.seek(offset_vertices_extra)
             for _ in range(num_vertices):
-                r, g, b, a = struct.unpack('<4B', f.read(4))
+                r, g, b, a = wf.read_u8_array(4)
                 extra_vcolors.append((r / 255.0, g / 255.0, b / 255.0, a / 255.0))
 
                 if num_uvmaps == 2:
-                    u2 = read_half_float(f.read(2))
-                    v2 = read_half_float(f.read(2))
+                    u2 = read_half_float(wf.read(2))
+                    v2 = read_half_float(wf.read(2))
                     uv2s.append((u2, 1.0 - v2))
 
 
         mesh_batches = []
         current_mesh_pos = offsetMeshes
-        f.seek(offsetMeshesOffsets)
-        mesh_offsets = [struct.unpack('<I', f.read(4))[0] for _ in range(numMeshes)]
+        wf.seek(offsetMeshesOffsets)
+        mesh_offsets = [wf.read_u32() for _ in range(numMeshes)]
 
         mesh_flags = []
         mesh_datas = []
         #return
         for x in range(numMeshes):
-            f.seek(offsetMeshes + mesh_offsets[x])
-            current_mesh_pos = f.tell()
-            
-            f.read(2)
-            num_batches = struct.unpack('<H', f.read(2))[0]
-            f.read(4)
-            offset_batch_offsets = struct.unpack('<I', f.read(4))[0]
-            mesh_flags.append(struct.unpack('<i', f.read(4))[0])
-            f.read(16)
-            name = f.read(32).split(b'\x00', 1)[0].decode('ascii')
-            mesh_datas.append(struct.unpack('<3ff3f3fff', f.read(12 + 4 + 12 + 12 + 8)))
-            print(f"[>] Loading Mesh: {name}")
-            while True:
-                val = f.read(2)
-                if val != b'\xFB\xFB':
-                    f.seek(-2, 1)
-                    break
+            print(f"[>] Loading Mesh {x}... ", end="")
+            wf.seek(offsetMeshes + mesh_offsets[x])
+            current_mesh_pos = wf.tell()
+            print("Current Pos: " + hex(current_mesh_pos))
+            wf.read(2)
+            num_batches = wf.read_u16()
+            wf.read(4)
+            offset_batch_offsets = wf.read_u32()
+            mesh_flags.append(wf.read_s32())
+            wf.read(16)
+            name = wf.read(32).split(b'\x00', 1)[0].decode('ascii')
+            mesh_datas.append(struct.unpack(f'{wf.end_flag}3ff3f3fff', wf.read(12 + 4 + 12 + 12 + 8)))
+            print(f"{name}")
+
             batch_offset_table = current_mesh_pos + offset_batch_offsets
-            f.seek(batch_offset_table)
-            batch_rel_offsets = [struct.unpack('<I', f.read(4))[0] for _ in range(num_batches)]
+            wf.seek(batch_offset_table)
+            batch_rel_offsets = [wf.read_u32() for _ in range(num_batches)]
             batch_starts = [batch_offset_table + rel for rel in batch_rel_offsets]
 
 
@@ -706,27 +728,27 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
             batch_bone_maps = []
 
             for batch_start in batch_starts:
-                f.seek(batch_start)
-                batch_info = WMBBatchHeader(f)
-                f.read(28)
+                wf.seek(batch_start)
+                batch_info = WMBBatchHeader(wf)
+                wf.advance(28)
 
                 vertex_offset = 0
                 if (batch_info.flags & 0x1) != 0:
                     vertex_offset = batch_info.vertexOffset
 
-                num_bone_maps = struct.unpack('<I', f.read(4))[0]
-                bone_map = list(f.read(num_bone_maps))
+                num_bone_maps = wf.read_u32()
+                bone_map = list(wf.read(num_bone_maps))
                 batch_bone_maps.append(bone_map)
                 batch_faces = []
 
                 if batch_info.numIndices > 0:
-                    f.seek(batch_start + batch_info.offsetIndices)
-                    raw = f.read(batch_info.numIndices * 2)
-                    indices = struct.unpack(f'<{batch_info.numIndices}H', raw)
+                    wf.seek(batch_start + batch_info.offsetIndices)
+                    raw = wf.read(batch_info.numIndices * 2)
+                    indices = struct.unpack(f'{wf.end_flag}{batch_info.numIndices}H', raw)
 
                     if batch_info.primativeType == 4:
                         for i in range(0, len(indices) - 2, 3):
-                            batch_faces.append((indices[i] + vertex_offset, indices[i + 1] + vertex_offset, indices[i + 2] + vertex_offset))
+                            batch_faces.append((indices[i] + vertex_offset, indices[i + 2] + vertex_offset, indices[i + 1] + vertex_offset))
                     elif batch_info.primativeType == 5:
                         a, b = indices[0], indices[1]
                         for i in range(2, len(indices)):
@@ -743,18 +765,18 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
 
             mesh_batches.append((name, batch_faces_list, batch_bone_maps, batch_starts, x))
             last_batch_start = batch_starts[-1]
-            f.seek(last_batch_start + 24)
-            offset_indices = struct.unpack('<I', f.read(4))[0]
-            num_indices = struct.unpack('<I', f.read(4))[0]
+            wf.seek(last_batch_start + 24)
+            offset_indices = wf.read_u32()
+            num_indices = wf.read_u32()
 
             index_data_start = last_batch_start + offset_indices
             index_data_end = index_data_start + num_indices * 2
 
-            f.seek(index_data_end)
+            wf.seek(index_data_end)
             while True:
-                marker = f.read(2)
+                marker = wf.read(2)
                 if marker != b'\xFB\xFB':
-                    f.seek(-2, 1)
+                    wf.seek(-2, 1)
                     break
 
         for mesh_name, batch_faces_list, batch_bone_maps, batch_starts, mesh_index in mesh_batches:
@@ -871,8 +893,12 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                     mesh.vertex_colors.active = mesh.vertex_colors["Col"]
                 bm.free()
 
-                if (batch_faces[1].unknownE1 == 32 and batch_faces[1].unknownE2 == 15):
-                    obj.hide_set(hide_shadow_meshes)
+                if (bayo_2):
+                    if (batch_faces[1].unknownE1 == 48):
+                        obj.hide_set(hide_shadow_meshes)
+                else:
+                    if (batch_faces[1].unknownE1 == 32 and batch_faces[1].unknownE2 == 15):
+                        obj.hide_set(hide_shadow_meshes)
 
 
     return {'FINISHED'}

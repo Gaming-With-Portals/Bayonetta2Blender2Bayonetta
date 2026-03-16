@@ -10,7 +10,7 @@ bl_info = {
 import bpy
 import os
 from bpy.app.handlers import persistent
-from .wmb.wmbImportOperator import ImportBayoWMB, ImportBayo2WMB
+from .wmb.wmbImportOperator import ImportBayoWMB
 from .wmb.wmbImportOperator import ExportBayoWMB
 from .dat_dtt.importer.datImportOperator import ImportNierDat
 from .ui.material_ui import BayoMaterialPanel, BayoMaterialToJSON, BayoJSONToMaterial
@@ -38,8 +38,8 @@ class IMPORT_BN_MainMenu(bpy.types.Menu):
         raiden_icon = pcoll["bayo"] 
    
         self.layout.operator(ImportNierDat.bl_idname, text="Archive File (.dat, .dtt)", icon_value=raiden_icon.icon_id)
-        self.layout.operator(ImportBayoWMB.bl_idname, text="Bayonetta 1 (.wmb)", icon_value=raiden_icon.icon_id)
-        self.layout.operator(ImportBayo2WMB.bl_idname, text="Bayonetta 2 (.wmb)", icon_value=raiden_icon.icon_id)
+        self.layout.operator(ImportBayoWMB.bl_idname, text="Model File (.wmb)", icon_value=raiden_icon.icon_id)
+
 
 class EXPORT_BN_MainMenu(bpy.types.Menu):
     bl_label = "Bayonetta"
@@ -56,7 +56,6 @@ classes = (
     BayonettaTexture,
     BayoMaterialDataProperty,
     ImportBayoWMB,
-    ImportBayo2WMB,
     ImportNierDat,
     ExportBayoWMB,
     BayoMaterialPanel,
