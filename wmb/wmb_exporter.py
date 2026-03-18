@@ -441,7 +441,7 @@ class WMBMaterialBlob:
                 emat.size = materialSizeDictionary[mat.bayo_data.type]
                 emat.flag = mat.bayo_data.flags
                 emat.type = mat.bayo_data.type
-                emat.data = mat["data"]
+                #emat.data = mat["data"]
                 emat.formal_data = mat.bayo_data.parameters
                 self.materials.append(emat)
 
@@ -722,29 +722,50 @@ class WMBDataGenerator:
         highest_global_id = 0
 
         for bone in bones:
-            if ("local_id" in bone):
+            if "local_id" in bone:
                 bone_name_to_id_map[bone.name] = bone["local_id"]
                 bone_ready_list.append(bone.name)
-                if (bone["local_id"] > highest_local_id):
+                if bone["local_id"] > highest_local_id:
                     highest_local_id = bone["local_id"] + 1
-            if ("id" in bone):
-                if (bone["id"] > highest_global_id and bone["id"] < 1000):
+            if "id" in bone:
+                if bone["id"] > highest_global_id and bone["id"] < 1000:
                     highest_global_id = bone["id"] + 1
 
         print(f"Greatest Local ID: {highest_local_id}")
         print(f"Greatest Global ID: {highest_global_id}")
 
+        existing_global_ids = set()
+        seen_global_ids = set()
+        duplicate_bones = []
+
+        for bone in bones:
+            if "id" in bone:
+                if bone["id"] in seen_global_ids:
+                    duplicate_bones.append(bone)
+                else:
+                    seen_global_ids.add(bone["id"])
+                    existing_global_ids.add(bone["id"])
+
+        for bone in duplicate_bones:
+            while highest_global_id in existing_global_ids:
+                highest_global_id += 1
+            print(f"Duplicate global ID on '{bone.name}', reassigning to {highest_global_id}")
+            bone["id"] = highest_global_id
+            existing_global_ids.add(highest_global_id)
+            highest_global_id += 1
+
         for bone in bones:
             if "id" not in bone:
+                while highest_global_id in existing_global_ids:
+                    highest_global_id += 1
                 bone["id"] = highest_global_id
+                existing_global_ids.add(highest_global_id)
                 highest_global_id += 1
 
         if len(bone_ready_list) == 0:
-            # No local_ids at all - fall back to old behaviour: sort by global id, reindex to 0..n
             for i, bone in enumerate(sorted(bones, key=lambda x: x["id"])):
                 bone_name_to_id_map[bone.name] = i
         else:
-            # Some or all bones have local_id - assign remaining ones sequentially
             for bone in bones:
                 if bone.name not in bone_ready_list:
                     print(f"Assigning {bone.name} to Local ID {highest_local_id}")
