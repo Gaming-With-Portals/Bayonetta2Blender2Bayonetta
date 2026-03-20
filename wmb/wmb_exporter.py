@@ -488,13 +488,19 @@ class WMBBatch():
         else:
             self.is_dummy = False
        
-
-            
+        if ("batch_flags" not in obj):
+            obj["batch_flags"] = 32769
+        if ("material_id" not in obj):
+            obj["material_id"] = 0
+        if ("unknownE1" not in obj):
+            obj["unknownE1"] = 0
+        if ("unknownE2" not in obj):
+            obj["unknownE2"] = 0
 
 
         self.batch_idx = 0
         self.id = parent.mesh_id
-        self.flags = obj["batch_flags"]
+        self.flags = obj.get("batch_flags", 32769)
         self.exmaterial_id = 0
         self.material_id = 0
         if (b2):
@@ -513,13 +519,11 @@ class WMBBatch():
         self.flags |= 1
         
         self.primitive_type = 4
-        self.unknownE1 = obj["unknownE1"]
-        self.unknownE2 = obj["unknownE2"]
         
         batch_ref_table = bone_ref_table[obj.name]
 
-        self.unknownE1 = obj["unknownE1"]
-        self.unknownE2 = obj["unknownE2"]
+        self.unknownE1 = obj.get("unknownE1", 0)
+        self.unknownE2 = obj.get("unknownE2", 0)
         
 
         mesh = obj.data
@@ -587,13 +591,20 @@ class WMBBatch():
 
 class WMBMesh():
     def __init__(self, arm_obj, obj, bone_ref_table, b2):
+        if ("data" not in obj):
+            obj["data"] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        if ("flags" not in obj):
+            obj["flags"] = -2147483648
+
+
         name_parts = obj.name.split("-")
         self.name = name_parts[1]
         self.exdata = obj["data"]
         self.mesh_id = int(name_parts[0])
         bpy_batches = []
         self.batches = []
-        
+
+
         self.center = (obj["data"][0], obj["data"][1], obj["data"][2])
         self.height = obj["data"][3]
         self.corner1 = (obj["data"][4], obj["data"][5], obj["data"][6])
@@ -716,61 +727,79 @@ class WMBDataGenerator:
             for i, bone in enumerate(sorted(arm_obj.data.bones, key=lambda x: x["id"])):
                 bone_name_to_id_map[bone.name] = i # Come up with some ids for local bones, these can be entirely arbitrary'''
 
-        bone_ready_list = []
-        bones = arm_obj.data.bones
-        highest_local_id = 0
-        highest_global_id = 0
 
-        for bone in bones:
-            if "local_id" in bone:
-                bone_name_to_id_map[bone.name] = bone["local_id"]
-                bone_ready_list.append(bone.name)
-                if bone["local_id"] > highest_local_id:
-                    highest_local_id = bone["local_id"] + 1
-            if "id" in bone:
-                if bone["id"] > highest_global_id and bone["id"] < 1000:
-                    highest_global_id = bone["id"] + 1
+        if (self.bayo_2):
+            bone_ready_list = []
+            bones = arm_obj.data.bones
+            highest_local_id = 0
+            highest_global_id = 0
 
-        print(f"Greatest Local ID: {highest_local_id}")
-        print(f"Greatest Global ID: {highest_global_id}")
+            for bone in bones:
+                if "local_id" in bone:
+                    bone_name_to_id_map[bone.name] = bone["local_id"]
+                    bone_ready_list.append(bone.name)
+                    if bone["local_id"] > highest_local_id:
+                        highest_local_id = bone["local_id"] + 1
+                if "id" in bone:
+                    if bone["id"] > highest_global_id and bone["id"] < 1000:
+                        highest_global_id = bone["id"] + 1
 
-        existing_global_ids = set()
-        seen_global_ids = set()
-        duplicate_bones = []
+            print(f"Greatest Local ID: {highest_local_id}")
+            print(f"Greatest Global ID: {highest_global_id}")
 
-        for bone in bones:
-            if "id" in bone:
-                if bone["id"] in seen_global_ids:
-                    duplicate_bones.append(bone)
-                else:
-                    seen_global_ids.add(bone["id"])
-                    existing_global_ids.add(bone["id"])
+            existing_global_ids = set()
+            seen_global_ids = set()
+            duplicate_bones = []
 
-        for bone in duplicate_bones:
-            while highest_global_id in existing_global_ids:
-                highest_global_id += 1
-            print(f"Duplicate global ID on '{bone.name}', reassigning to {highest_global_id}")
-            bone["id"] = highest_global_id
-            existing_global_ids.add(highest_global_id)
-            highest_global_id += 1
+            for bone in bones:
+                if "id" in bone:
+                    if bone["id"] in seen_global_ids:
+                        duplicate_bones.append(bone)
+                    else:
+                        seen_global_ids.add(bone["id"])
+                        existing_global_ids.add(bone["id"])
 
-        for bone in bones:
-            if "id" not in bone:
+            for bone in duplicate_bones:
                 while highest_global_id in existing_global_ids:
                     highest_global_id += 1
+                print(f"Duplicate global ID on '{bone.name}', reassigning to {highest_global_id}")
                 bone["id"] = highest_global_id
                 existing_global_ids.add(highest_global_id)
                 highest_global_id += 1
 
-        if len(bone_ready_list) == 0:
-            for i, bone in enumerate(sorted(bones, key=lambda x: x["id"])):
-                bone_name_to_id_map[bone.name] = i
-        else:
             for bone in bones:
-                if bone.name not in bone_ready_list:
-                    print(f"Assigning {bone.name} to Local ID {highest_local_id}")
-                    bone_name_to_id_map[bone.name] = highest_local_id
-                    highest_local_id += 1
+                if "id" not in bone:
+                    while highest_global_id in existing_global_ids:
+                        highest_global_id += 1
+                    bone["id"] = highest_global_id
+                    existing_global_ids.add(highest_global_id)
+                    highest_global_id += 1
+
+            if len(bone_ready_list) == 0:
+                for i, bone in enumerate(sorted(bones, key=lambda x: x["id"])):
+                    bone_name_to_id_map[bone.name] = i
+            else:
+                for bone in bones:
+                    if bone.name not in bone_ready_list:
+                        print(f"Assigning {bone.name} to Local ID {highest_local_id}")
+                        bone_name_to_id_map[bone.name] = highest_local_id
+                        highest_local_id += 1
+        else:
+            # make up some shi
+            current_highest_id = 0
+            for bone in arm_obj.data.bones:
+                if "id" in bone:
+                    if bone["id"] > current_highest_id:
+                        current_highest_id = bone["id"] + 1
+
+            for bone in arm_obj.data.bones:
+                if "id" not in bone:
+                    bone["id"] = current_highest_id
+                    current_highest_id+=1 
+
+
+            for i, bone in enumerate(sorted(arm_obj.data.bones, key=lambda x: x["id"])):
+                bone_name_to_id_map[bone.name] = i
 
         offset_ticker = 0
         self.header_offset = 0
