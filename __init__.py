@@ -15,6 +15,7 @@ from .wmb.wmbImportOperator import ExportBayoWMB
 from .dat_dtt.importer.datImportOperator import ImportNierDat
 from .ui.material_ui import BayoMaterialPanel, BayoMaterialToJSON, BayoJSONToMaterial
 from .ui.material_ui import BayoMaterialPanelAdvanced
+from .ui.mesh_ui import BayoObjectPanel
 from .utils.util import BayonettaVector4Property
 from .wmb.wmb_materials import BayonettaParameter, BayonettaTexture
 from .wmb.wmb_materials import BayoMaterialDataProperty
@@ -31,7 +32,7 @@ preview_collections = {}
 
 class IMPORT_BN_MainMenu(bpy.types.Menu):
     bl_label = "Bayonetta"
-    bl_idname = "IMPORT_MT_main_menu"
+    bl_idname = "IMPORT_BN_main_menu"
 
     def draw(self, context):
         pcoll = preview_collections["main"]
@@ -43,7 +44,7 @@ class IMPORT_BN_MainMenu(bpy.types.Menu):
 
 class EXPORT_BN_MainMenu(bpy.types.Menu):
     bl_label = "Bayonetta"
-    bl_idname = "EXPORT_MT_main_menu"
+    bl_idname = "EXPORT_BN_main_menu"
 
     def draw(self, context):
         pcoll = preview_collections["main"]
@@ -66,7 +67,7 @@ classes = (
     RipMeshByUVIslands,
     IMPORT_BN_MainMenu,
     EXPORT_BN_MainMenu,
-    
+    BayoObjectPanel
 
 )
 

@@ -99,25 +99,28 @@ class BayoMaterialPanelAdvanced(bpy.types.Panel):
             layout.label(text="No Bayonetta material data found.")
             return
 
-        box = layout.box()
-        for param in mat.bayo_data.parameters:
-            
-            if param.type == "f4_float3_t":
-                box.label(text=param.name)
-                box.prop(param, "value_vec3", text="")
-            elif param.type == "f4_float2_t":
-                box.label(text=param.name)
-                box.prop(param, "value_vec2", text="")
-            elif param.type == "f4_float_t":
-                box.label(text=param.name)
-                box.prop(param, "value_float", text="")
-            elif param.type == "f4_ignored_t":
-                continue
-            elif param.type in {"sampler2D_t", "samplerCUBE_t"}:
-                continue
-            else:
-                box.label(text=param.name)
-                box.prop(param, "value_vec4", text="")
+        if (mat.bayo_data.bayonetta_2):
+            pass
+        else:
+            box = layout.box()
+            for param in mat.bayo_data.parameters:
+                
+                if param.type == "f4_float3_t":
+                    box.label(text=param.name)
+                    box.prop(param, "value_vec3", text="")
+                elif param.type == "f4_float2_t":
+                    box.label(text=param.name)
+                    box.prop(param, "value_vec2", text="")
+                elif param.type == "f4_float_t":
+                    box.label(text=param.name)
+                    box.prop(param, "value_float", text="")
+                elif param.type == "f4_ignored_t":
+                    continue
+                elif param.type in {"sampler2D_t", "samplerCUBE_t"}:
+                    continue
+                else:
+                    box.label(text=param.name)
+                    box.prop(param, "value_vec4", text="")
 
 
 class BayoMaterialPanel(bpy.types.Panel):
@@ -139,15 +142,17 @@ class BayoMaterialPanel(bpy.types.Panel):
         layout.prop(mat.bayo_data, "flags")
         layout.prop(mat.bayo_data, "bayonetta_2")
 
-        box = layout.box()
-        for param in mat.bayo_data.parameters:
-            if param.type in {"sampler2D_t", "samplerCUBE_t"}:
-                box.prop(param, "value_int", text=param.name)
 
-        box = layout.box()
-        for i, param in enumerate(mat.bayo_data.textures):
-            box.prop(param.id, "value_int", f"{i:02}")
-    
+        if (not mat.bayo_data.bayonetta_2):
+            box = layout.box()
+            for param in mat.bayo_data.parameters:
+                if param.type in {"sampler2D_t", "samplerCUBE_t"}:
+                    box.prop(param, "value_int", text=param.name)
+
+            box = layout.box()
+            for i, param in enumerate(mat.bayo_data.textures):
+                box.prop(param.id, "value_int", f"{i:02}")
+        
         layout.operator(BayoMaterialToJSON.bl_idname, text="Copy Material")
         layout.operator(BayoJSONToMaterial.bl_idname, text="Paste Material")
         
