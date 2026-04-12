@@ -53,6 +53,20 @@ class EXPORT_BN_MainMenu(bpy.types.Menu):
         raiden_icon = pcoll["bayo"] 
         self.layout.operator(ExportBayoWMB.bl_idname, text="Model File (.wmb)", icon_value=raiden_icon.icon_id)
 
+class B2BConfiguration(bpy.types.AddonPreferences):
+    bl_idname = __package__
+    astcEncDir:  bpy.props.StringProperty(name="ASTC Encoder Path", subtype='FILE_PATH')
+
+    def draw(self, context):
+        layout: bpy.types.UILayout = self.layout
+
+        box = layout.box()
+        box.label(text="ASTC Encoder Setup")
+        box.prop(self, "astcEncDir")
+
+        op = box.operator("wm.url_open", text="Get ASTC Encoder", icon='URL')
+        op.url = "https://github.com/ARM-software/astc-encoder/releases/"
+
 
 classes = (
     BayonettaParameter,
@@ -70,9 +84,14 @@ classes = (
     IMPORT_BN_MainMenu,
     EXPORT_BN_MainMenu,
     BayoObjectPanel,
-    ImportBayoSCR
+    ImportBayoSCR,
+    B2BConfiguration
 
 )
+
+
+
+
 
 
 def menu_func_utils(self, context):
@@ -111,6 +130,16 @@ def register():
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
     bpy.types.VIEW3D_MT_object.append(menu_func_utils)
     bpy.types.Material.bayo_data = bpy.props.PointerProperty(type=BayoMaterialDataProperty)
+
+
+    addon_dir = os.path.dirname(os.path.abspath(__file__))
+    if (not os.path.exists(os.path.join(addon_dir, "userpref.json"))):
+        print("Making userpref.json...")
+        import json
+        with open(os.path.join(addon_dir, "userpref.json"), "wt") as f:
+            param = {}
+            param["astcEnc"] = ""
+            f.write(json.dumps(param))
 
 def unregister():
     for pcoll in preview_collections.values():

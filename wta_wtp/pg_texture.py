@@ -4,14 +4,14 @@ import struct
 from . import swizzle as deswizzler
 import json
 import subprocess
+import bpy
+from ..consts import ADDON_NAME
 # Credit: https://github.com/aboood40091/BNTX-Extractor/blob/master/bntx_extract.py
 
 astc_enc_path = ""
-addon_dir = os.path.dirname(os.path.abspath(__file__))
-if (os.path.exists(os.path.join(addon_dir, "..", "userpref.json"))):
-    with open(os.path.join(addon_dir, "..", "userpref.json"), "rt") as f:
-        j = json.loads(f.read())
-        astc_enc_path = j["astcEnc"]
+
+
+
 
 
 print(f"ASTC Encoder Registered as {astc_enc_path}")
@@ -278,6 +278,10 @@ def extractBntx(filePath, outputDir):
         
         x.write(unswizzled)
         x.close()
+
+        if (astc_enc_path == ""):
+            print("[!] Missing AstcEnc.exe, the ASTC file is ready but will not be autoconverted to png.")
+            return
         
         result = subprocess.run(
             [astc_enc_path, "-dl", outputDir+".astc", outputDir+".png"],
@@ -293,6 +297,11 @@ def extractBntx(filePath, outputDir):
 
 
 def extractTextures(wtaFilePath, wtpFilePath, targetDirectory):
+    global astc_enc_path
+    prefs = bpy.context.preferences.addons[ADDON_NAME].preferences
+    astc_enc_path = prefs.astcEncDir
+
+
     wta = open(wtaFilePath, "rb")
     f = BinReader(wta)
 
