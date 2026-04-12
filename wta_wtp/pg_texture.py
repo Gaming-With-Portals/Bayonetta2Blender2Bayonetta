@@ -333,14 +333,20 @@ def extractTextures(wtaFilePath, wtpFilePath, targetDirectory):
     else:
         ids = range(textureCount)
 
+    print(f"Extracting {textureCount} texture(s)...")
+
     wta.close()
     os.makedirs(targetDirectory, exist_ok=True)
     wtp = open(wtpFilePath, "rb")
+
+    converted = set()
+
     for i in range(textureCount):
+        print(f"Extracting {i:0>8X}")
         wtp.seek(offsets[i])
         ext = ".bin"
         fileMagic = wtp.read(4)
-        if (fileMagic == b"DDS\x00"):
+        if (fileMagic == b"DDS "):
             ext=".dds"
         dir = os.path.join(targetDirectory, f"{ids[i]:0>8X}{ext}")
 
@@ -351,11 +357,13 @@ def extractTextures(wtaFilePath, wtpFilePath, targetDirectory):
         if (fileMagic == b"BNTX"):
             print("Attempting to extract BNTX...")
             extractBntx(os.path.join(targetDirectory, f"{ids[i]:0>8X}{ext}"), os.path.join(targetDirectory, f"{ids[i]:0>8X}"))
+            converted.add(os.path.join(targetDirectory, f"{ids[i]:0>8X}{ext}"))
 
 
     wtp.close()
 
 
     for f in os.listdir(targetDirectory):
-        if (os.path.splitext(f)[1]==".bin"):
-            os.remove(os.path.join(targetDirectory, f))
+        full = os.path.join(targetDirectory, f)
+        if full.endswith(".bin") and full in converted:
+            os.remove(full)

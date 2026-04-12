@@ -76,15 +76,26 @@ def ImportData(only_extract, filepath, transform=None):
     print("SCR Files: " + str(scr_files))
     print("WMB Files: " + str(wmb_files))
 
+    if filename_without_extension + ".wmb" in wmb_files: # For b1, attempt to find a wmb with the dat name
+        wmb_files = [filename_without_extension + ".wmb"]
+    if "pl0010.wmb" in wmb_files: # Exception for bayonetta because it's weird
+        wmb_files = ["pl0010.wmb"] 
+
     # WTA/WTP
-    wtbPath = os.path.join(extract_dir, filename_without_extension + '.dat', filename_without_extension + '.wtb')
+    wtbFiles = [x for x in os.listdir(os.path.join(extract_dir, filename_without_extension + '.dat')) if os.path.splitext(x)[1] == ".wtb"]
+    #wtbPath = os.path.join(extract_dir, filename_without_extension + '.dat', filename_without_extension + '.wtb')
     wtaPath = os.path.join(extract_dir, filename_without_extension + '.dat', filename_without_extension + '.wta')
     print(wtaPath)
   
-    if os.path.isfile(wtbPath):
+    if (len(wtbFiles) > 0):
         print("Textures: WTB")
-        texturesExtractDir = os.path.join(extract_dir, filename_without_extension + '.dat', "textures")
-        extractTextures(wtaPath, wtpPath, texturesExtractDir)
+        for wtbPath in wtbFiles:
+            if (not wtbPath.startswith(os.path.splitext(wmb_files[0])[0])):
+                continue
+
+            wtbPath = os.path.join(extract_dir, filename_without_extension + '.dat', wtbPath)
+            texturesExtractDir = os.path.join(extract_dir, filename_without_extension + '.dat', "textures")
+            extractTextures(wtbPath, wtbPath, texturesExtractDir)
 
     if os.path.isfile(wtaPath):
         print("Textures: WTA")
@@ -106,11 +117,6 @@ def ImportData(only_extract, filepath, transform=None):
 
     if wmb_mode:
         # WMB
-        if filename_without_extension + ".wmb" in wmb_files:
-            wmb_files = [filename_without_extension + ".wmb"]
-        if "pl0010.wmb" in wmb_files: # Exception for bayonetta because it's weird
-            wmb_files = ["pl0010.wmb"] 
-
         wmb_filepath = os.path.join(extract_dir, filename_without_extension + wmb_ext, wmb_files[0])
         print("WMB Path: " + wmb_filepath)
         from ...wmb import wmb_importer

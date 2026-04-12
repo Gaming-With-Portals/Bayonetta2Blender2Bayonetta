@@ -203,7 +203,6 @@ class WMBMaterial:
 
 
             i+=1
-            print(f"  {param_name} → {param_type}")
 
 
         output = nodes.new(type='ShaderNodeOutputMaterial')
