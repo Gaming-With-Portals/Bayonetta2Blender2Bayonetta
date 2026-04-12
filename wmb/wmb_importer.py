@@ -270,13 +270,14 @@ class WMBMaterial:
 class WMBMaterial2:
     
 
-    def __init__(self, file, shader_name, size, ids):
+    def __init__(self, file, shader_name, size, ids, tex_ids_to_type):
         self.matID = struct.unpack("<h", file.read(2))[0]
         self.flags = struct.unpack("<h", file.read(2))[0]
         self.texture_data = []
         self.data_data = []
         self.shader_name = shader_name
         self.tex_id_list = ids
+        self.id_type_map = tex_ids_to_type
         print(f"{size} - {(size - 24) // 4}")
         for i in range(5):
             self.texture_data.append(struct.unpack("<I", file.read(4))[0])
@@ -295,7 +296,10 @@ class WMBMaterial2:
         mat.bayo_data.type = self.matID
         mat.bayo_data.flags = self.flags
         mat.bayo_data.bayonetta_2 = True
-        
+        mat.use_nodes = True
+        mat.node_tree.links.clear()
+        mat.node_tree.nodes.clear()
+
         i = 0
         for tex in self.texture_data:
             mat.bayo_data.textures.add()
@@ -319,6 +323,58 @@ class WMBMaterial2:
         mat["raw_data"] = self.texture_data
         mat["data"] = self.data_data
         mat["shader"] = self.shader_name
+
+        nodes = mat.node_tree.nodes
+        links = mat.node_tree.links
+
+        output = nodes.new(type='ShaderNodeOutputMaterial')
+        output.location = 1300,0
+        principled = nodes.new(type='ShaderNodeBsdfPrincipled')
+        principled.inputs["Roughness"].default_value = 1
+        principled.location = 1000,0
+        output_link = links.new( principled.outputs['BSDF'], output.inputs['Surface'] )
+
+        normal_bpy_image = None
+        albedo_bpy_image = None
+        for tex in self.texture_data:
+            if (tex in self.id_type_map):
+                tp = self.id_type_map[tex]
+
+       
+                if tex in wmb_texture_list:
+                    if (tp == 14):
+                        albedo_bpy_image = wmb_texture_list[tex]
+                    if (tp == 15):
+                        normal_bpy_image = wmb_texture_list[tex]
+
+                else:
+                    
+                    if (os.path.isfile(os.path.join(texture_path, f"{tex:0>8X}.dds"))):
+                        print("Loading: ", os.path.join(texture_path, f"{tex:0>8X}.dds"))
+                        if (tp == 14):
+                            albedo_bpy_image = bpy.data.images.load(os.path.join(texture_path, f"{tex:0>8X}.dds"))
+                        if (tp == 15):
+                            normal_bpy_image = bpy.data.images.load(os.path.join(texture_path, f"{tex:0>8X}.dds"))
+
+
+
+        alb_image_node = nodes.new(type='ShaderNodeTexImage')
+        alb_image_node.location = -100,-60
+        if albedo_bpy_image is not None:
+            alb_image_node.image = albedo_bpy_image
+            links.new(alb_image_node.outputs['Color'], principled.inputs["Base Color"])
+
+        nrm_image_node = nodes.new(type='ShaderNodeTexImage')
+        nrm_image_node.location = -100,-500
+        if normal_bpy_image is not None:
+            nrm_image_node.image = normal_bpy_image
+            normalShader = nodes.new(type='ShaderNodeNormalMap')
+            normalShader.location = 0, 0
+            normalShader.hide = True
+            links.new(nrm_image_node.outputs["Color"], normalShader.inputs["Color"])
+            links.new(normalShader.outputs["Normal"], principled.inputs["Normal"])
+
+        
 
         wmb_material_list[material_name] = mat
         return mat
@@ -348,7 +404,7 @@ def decode_bayo_switch_normal(packed_value):
     return fx, fy, fz
 
     
-def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bayo_2=False, normal_type="B1"):
+def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bayo_2=False, normal_type="B1", target_col="WMB"):
     import numpy as np
 
     def read_half_float(hf_bytes):
@@ -364,12 +420,15 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
 
     is_wii = False
 
-    if ("WMB" not in bpy.data.collections):
-        wmb_collection = bpy.data.collections.new("WMB")
-        bpy.context.scene.collection.children.link(wmb_collection)
+    if (target_col=="WMB"):
+        if ("WMB" not in bpy.data.collections):
+            wmb_collection = bpy.data.collections.new("WMB")
+            bpy.context.scene.collection.children.link(wmb_collection)
+        else:
+            wmb_collection = bpy.data.collections["WMB"]
     else:
-        wmb_collection = bpy.data.collections["WMB"]
-    
+        wmb_collection = bpy.data.collections[target_col] # Caller is responsible for creating the collection
+        
     
     with open(filepath, 'rb') as f:
         wf = BinReader(f)
@@ -461,7 +520,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
             if (bayo_2 == False):
                 materialData = WMBMaterial(wf, material_json) # TODO: Use WF System
             else:
-                materialData = WMBMaterial2(wf, shader_names[x], size, tex_ids) # TODO: Use WF System
+                materialData = WMBMaterial2(wf, shader_names[x], size, tex_ids, tex_ids_to_type) # TODO: Use WF System
 
             bayonettaMaterialList.append(materialData)
 
@@ -564,42 +623,52 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
             arm_obj.show_in_front = True
             arm_obj.data.display_type = 'STICK'
 
-        def bone_group_name(bone_id):
-            return bone_name_map.get(bone_id, f"bone{bone_id:03}")
+            def bone_group_name(bone_id):
+                return bone_name_map.get(bone_id, f"bone{bone_id:03}")
 
-        arm_obj["bone_flags"] = False
-        if (offsetBoneFlags != 0):
-            arm_obj["bone_flags"] = True
+            arm_obj["bone_flags"] = False
+            if (offsetBoneFlags != 0):
+                arm_obj["bone_flags"] = True
 
-        arm_obj["bone_symmetries"] = False
-        if (offsetBoneSymmetries != 0):
-            arm_obj["bone_symmetries"] = True
+            arm_obj["bone_symmetries"] = False
+            if (offsetBoneSymmetries != 0):
+                arm_obj["bone_symmetries"] = True
 
-        arm_obj["inverse_kinematics"] = False
-        if (offsetInverseKinematics != 0):
-            arm_obj["inverse_kinematics"] = True
-            wf.seek(offsetInverseKinematics)
-            kincount = wf.read_s8()
-            other_data = wf.read_s8_array(3)
-            offset = wf.read_s32()
-            arm_obj["ik_count"] = kincount
-            arm_obj["ik_offset"] = offset
-            arm_obj["ik_unk"] = other_data
-            wf.seek(offsetInverseKinematics + offset)
-            for i in range(kincount):
-                structure = wf.read_s8_array(16)
-                arm_obj["ik_structure_" + str(i)] = structure
+            arm_obj["inverse_kinematics"] = False
+            if (offsetInverseKinematics != 0):
+                arm_obj["inverse_kinematics"] = True
+                wf.seek(offsetInverseKinematics)
+                kincount = wf.read_s8()
+                other_data = wf.read_s8_array(3)
+                offset = wf.read_s32()
+                arm_obj["ik_count"] = kincount
+                arm_obj["ik_offset"] = offset
+                arm_obj["ik_unk"] = other_data
+                wf.seek(offsetInverseKinematics + offset)
+                for i in range(kincount):
+                    structure = wf.read_s8_array(16)
+                    arm_obj["ik_structure_" + str(i)] = structure
 
-        arm_obj["b2"] = bayo_2
-        if (bayo_2):
-            arm_obj["exmatinfo"] = exMatInfo
+            arm_obj["b2"] = bayo_2
+            if (bayo_2):
+                arm_obj["exmatinfo"] = exMatInfo
 
-        for id, flag in tex_ids_to_type.items():
-            arm_obj[f"txtr{id}"] = flag
+            for id, flag in tex_ids_to_type.items():
+                arm_obj[f"txtr{id}"] = flag
+
+        else:
+            model_collection["b2"] = bayo_2
+            if (bayo_2):
+                model_collection["exmatinfo"] = exMatInfo
+
+            for id, flag in tex_ids_to_type.items():
+                model_collection[f"txtr{id}"] = flag
 
 
         # Read vertex positions separately if offset_positions is non-zero
         vertices, vcolor, uvs, normals, vertex_groups_data = [], [], [], [], []
+        extra_vcolors = []
+        uv2s = []
 
         if vertexFormat == 0x4000001F:
             # read positions from offset_positions
@@ -639,9 +708,49 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 normals.append(normal)
                 vertex_groups_data.append(list(zip(bone_ids, bone_weights)))
 
+        elif (vertexFormat == 0x5800000F or vertexFormat == 0x4B40000F):
+            # SCR Vertex format (Position, UV, Normals, Tangents, Color UV2 [if uvCount=2])
+            wf.seek(offset_vertices)
+            for i in range(num_vertices):
+                px, py, pz = wf.read_f32_vector3()
+
+                u = read_half_float(wf.read(2))
+                v = read_half_float(wf.read(2))
+                if (normal_type == "B1"):
+                    wf.advance(1)
+                    nz, ny, nx = wf.read_s8_array(3)
+                    normal = Vector(((ny / 127.0), -(nz / 127.0), (nx / 127.0)))
+                    if normal.length == 0:
+                        normal = Vector((0.0, 0.0, 1.0))
+                    else:
+                        normal.normalize()
+                else:
+                    nx, ny, nz = decode_bayo_switch_normal(wf.read_u32())
+
+                    normal = Vector(((ny), -(nz), (nx)))
+                    if normal.length == 0:
+                        normal = Vector((0.0, 0.0, 1.0))
+                    else:
+                        normal.normalize()
+
+                wf.advance(4)  # tangents - skip
+
+                vertices.append((px, py, pz))
+                uvs.append((u, 1.0 - v))
+                normals.append(normal)
+
+                r, g, b, a = wf.read_u8_array(4)
+                extra_vcolors.append((r / 255.0, g / 255.0, b / 255.0, a / 255.0))
+
+                if num_uvmaps == 2:
+                    u2 = read_half_float(wf.read(2))
+                    v2 = read_half_float(wf.read(2))
+                    uv2s.append((u2, 1.0 - v2))
+
+                vertex_groups_data.append(list(zip((0,0,0,0), (0,0,0,0))))
+
         else:
             wf.seek(offset_vertices)
-
             for i in range(num_vertices):
                 px, py, pz = wf.read_f32_vector3()
 
@@ -679,10 +788,9 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 normals.append(normal)
                 vertex_groups_data.append(list(zip(bone_ids, bone_weights)))
 
-        extra_vcolors = []
-        uv2s = []
 
-        if vertexFormat != 0x4000001F and offset_vertices_extra > 0:
+
+        if vertexFormat != 0x4000001F and vertexFormat != 0x5800000F and offset_vertices_extra > 0:
             wf.seek(offset_vertices_extra)
             for _ in range(num_vertices):
                 r, g, b, a = wf.read_u8_array(4)
@@ -781,6 +889,10 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
 
         for mesh_name, batch_faces_list, batch_bone_maps, batch_starts, mesh_index in mesh_batches:
             for batch_index, batch_faces in enumerate(batch_faces_list, 1):
+                if mesh_name.replace("\x00", "") == "":
+                    mesh_name=os.path.basename(os.path.splitext(filepath)[0])
+
+
                 object_name = f"{mesh_index}-{mesh_name}-{batch_index - 1}" # MGR2Blender style
                 print(f"[>] Importing {object_name}")
                 used_indices = sorted(set(i for tri in batch_faces[0] for i in tri))
@@ -824,10 +936,14 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                     obj.data.materials.append(bayonettaMaterialList[batch_faces[1].exMaterialID].toBPYMaterial(f"{wmb_name}_{batch_faces[1].exMaterialID}", textures))
                 else:
                     obj.data.materials.append(bayonettaMaterialList[batch_faces[1].materialID].toBPYMaterial(f"{wmb_name}_{batch_faces[1].materialID}", textures))
-                obj.parent = arm_obj
 
-                mod = obj.modifiers.new(name="Armature", type='ARMATURE')
-                mod.object = arm_obj
+                if (numBones > 0):
+                    obj.parent = arm_obj
+
+                    mod = obj.modifiers.new(name="Armature", type='ARMATURE')
+                    mod.object = arm_obj
+
+
                 obj.active_material_index = 0
 
                 if (len(local_vertices) == 1):
@@ -837,14 +953,15 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 mesh.from_pydata(local_vertices, [], remapped_faces)
                 mesh.update()
 
-                # vertex groups
-                for vert_index, groups in enumerate(remapped_vertex_groups):
-                    for bone_id, weight in groups:
-                        group_name = bone_group_name(bone_id)
-                        group = obj.vertex_groups.get(group_name)
-                        if not group:
-                            group = obj.vertex_groups.new(name=group_name)
-                        group.add([vert_index], weight, 'REPLACE')
+                if (numBones > 0):
+                    # vertex groups
+                    for vert_index, groups in enumerate(remapped_vertex_groups):
+                        for bone_id, weight in groups:
+                            group_name = bone_group_name(bone_id)
+                            group = obj.vertex_groups.get(group_name)
+                            if not group:
+                                group = obj.vertex_groups.new(name=group_name)
+                            group.add([vert_index], weight, 'REPLACE')
 
                 loop_normals = []
                 for face in remapped_faces:

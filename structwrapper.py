@@ -50,6 +50,9 @@ class BinReader:
     def read_u32_array(self, count):
         return struct.unpack((self.end_flag + "I"*count), self.f.read(4 * count))
 
+    def read_s16_array(self, count):
+        return struct.unpack((self.end_flag + "h"*count), self.f.read(2 * count))
+
     def read_s8_array(self, count):
         return struct.unpack((self.end_flag + "b"*count), self.f.read(count))
 

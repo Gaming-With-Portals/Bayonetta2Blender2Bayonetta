@@ -90,7 +90,7 @@ class WMBVertexChunk:
 
             eval_mesh.calc_tangents(uvmap=eval_mesh.uv_layers.active.name)
 
-            self.total_vertices += len(eval_mesh.vertices)
+            
             sorted_loops = sorted(eval_mesh.loops, key=lambda loop: loop.vertex_index)
 
             color_layer = eval_mesh.vertex_colors.get("Col", None)
@@ -128,6 +128,35 @@ class WMBVertexChunk:
 
 
             obj["vertex_start"] = vertex_ticker
+            if (obj["dummy"]):
+                for i in range(3):
+                    vertex_info = []
+                    ex_vertex_info = []
+                    vertex_info.append((0, 0, 0))
+                    vertex_info.append((0, 0, 0))
+
+
+
+                    vertex_info.append((0, 0, 0, 0))
+                    vertex_info.append((0, 0, 0, 0))
+                    vertex_info.append((0, 0, 0, 0))
+                    vertex_info.append((0, 0))
+                    vertex_info.append((0, 0))
+
+
+                    ex_vertex_info.append((0, 0, 0, 0))
+                    if (self.num_mapping == 2):
+                        ex_vertex_info.append((0, 0, 0, 0))
+
+                    self.vertex_infos.append(vertex_info)
+                    self.exvertex_infos.append(ex_vertex_info)
+                    vertex_ticker+=1
+                obj["vertex_end"] = vertex_ticker
+                self.total_vertices += 3
+                continue
+
+            self.total_vertices += len(eval_mesh.vertices)
+
             for vertex in eval_mesh.vertices:
                 vertex_ticker+=1
                 pos = vertex.co

@@ -8,6 +8,7 @@ from bpy_extras.io_utils import ImportHelper
 from ...utils.visibilitySwitcher import enableVisibilitySelector
 from ...utils.util import setExportFieldsFromImportFile, ShowMessageBox
 from ...consts import DAT_EXTENSIONS
+from ...wta_wtp.pg_texture import extractTextures
 
 def ImportData(only_extract, filepath, transform=None):
     print("Importing data...")
@@ -77,11 +78,28 @@ def ImportData(only_extract, filepath, transform=None):
 
     # WTA/WTP
     wtbPath = os.path.join(extract_dir, filename_without_extension + '.dat', filename_without_extension + '.wtb')
+    wtaPath = os.path.join(extract_dir, filename_without_extension + '.dat', filename_without_extension + '.wta')
+    print(wtaPath)
   
     if os.path.isfile(wtbPath):
+        print("Textures: WTB")
         texturesExtractDir = os.path.join(extract_dir, filename_without_extension + '.dat', "textures")
-        from ...wta_wtp.importer import wtpImportOperator
-        wtpImportOperator.extractFromWta(wtbPath, wtbPath, texturesExtractDir)
+        extractTextures(wtaPath, wtpPath, texturesExtractDir)
+
+    if os.path.isfile(wtaPath):
+        print("Textures: WTA")
+        wtpPath = os.path.join(extract_dir, filename_without_extension + '.dat', filename_without_extension + '.wtp')
+        if (not os.path.isfile(wtpPath)):
+            wtpPath = os.path.join(extract_dir, filename_without_extension + '.dtt', filename_without_extension + '.wtp')
+
+        if (os.path.isfile(wtpPath)):
+            texturesExtractDir = os.path.join(extract_dir, filename_without_extension + '.dat', "textures")
+            extractTextures(wtaPath, wtpPath, texturesExtractDir)
+        else:
+            print("Couldn't find WTP, skipping textures")
+
+
+
 
     if only_extract:
         return {'FINISHED'}

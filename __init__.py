@@ -19,6 +19,7 @@ from .ui.mesh_ui import BayoObjectPanel
 from .utils.util import BayonettaVector4Property
 from .wmb.wmb_materials import BayonettaParameter, BayonettaTexture
 from .wmb.wmb_materials import BayoMaterialDataProperty
+from .scr.scrOperators import ImportBayoSCR
 from .utils.utilOperators import RipMeshByUVIslands
 
 class BayonettaObjectMenu(bpy.types.Menu):
@@ -40,6 +41,7 @@ class IMPORT_BN_MainMenu(bpy.types.Menu):
    
         self.layout.operator(ImportNierDat.bl_idname, text="Archive File (.dat, .dtt)", icon_value=raiden_icon.icon_id)
         self.layout.operator(ImportBayoWMB.bl_idname, text="Model File (.wmb)", icon_value=raiden_icon.icon_id)
+        self.layout.operator(ImportBayoSCR.bl_idname, text="Stage File (.scr)", icon_value=raiden_icon.icon_id)
 
 
 class EXPORT_BN_MainMenu(bpy.types.Menu):
@@ -67,7 +69,8 @@ classes = (
     RipMeshByUVIslands,
     IMPORT_BN_MainMenu,
     EXPORT_BN_MainMenu,
-    BayoObjectPanel
+    BayoObjectPanel,
+    ImportBayoSCR
 
 )
 

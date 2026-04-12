@@ -34,9 +34,18 @@ class WTAData:
         for i in range(self.num_files):
             self.flags.append(io.read_uint32(f))
 
-        self.idx = []
-        for i in range(self.num_files):
-            self.idx.append(i)
+
+        if (self.offsetTextureIdx == 0):
+            print("Textures: Using Bayonetta 1 IDs")
+            self.idx = []
+            for i in range(self.num_files):
+                self.idx.append(i)
+        else:
+            print("Textures: Using Bayonetta 2 IDs")
+            f.seek(self.offsetTextureIdx)
+            self.idx = []
+            for i in range(self.num_files):
+                self.idx.append(io.read_uint32(f))
 
         """# Texture Idx
         f.seek(self.offsetTextureIdx)
@@ -58,11 +67,12 @@ class WTAData:
 
         self.wtaPath = f.name
 
-    def  extract_textures(self, extractionDir):
+    def extract_textures(self, extractionDir):
         count = 0
         fileName = os.path.basename(self.wtaPath)
         dir = os.path.dirname(self.wtaPath)
         for i in range(self.num_files):
+            print(f"Texture {self.idx[i]:0>8X} {self.offsets[i]:x} {self.sizes[i]:x}")
             os.makedirs(extractionDir, exist_ok=True)
             with open(os.path.join(extractionDir, f"{self.idx[i]:0>8X}.dds"), "wb") as f:
                 f.write(self.data[self.offsets[i]:self.offsets[i]+self.sizes[i]])
