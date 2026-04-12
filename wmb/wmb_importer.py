@@ -336,13 +336,13 @@ class WMBMaterial2:
 
         normal_bpy_image = None
         albedo_bpy_image = None
-        for tex in self.texture_data:
+        for i, tex in enumerate(self.texture_data):
             if (tex in self.id_type_map):
                 tp = self.id_type_map[tex]
 
        
                 if tex in wmb_texture_list:
-                    if (tp == 14):
+                    if (i == 0):
                         albedo_bpy_image = wmb_texture_list[tex]
                     if (tp == 15):
                         normal_bpy_image = wmb_texture_list[tex]
@@ -350,11 +350,14 @@ class WMBMaterial2:
                 else:
                     
                     if (os.path.isfile(os.path.join(texture_path, f"{tex:0>8X}.dds"))):
-                        print("Loading: ", os.path.join(texture_path, f"{tex:0>8X}.dds"))
-                        if (tp == 14):
+                        if (i == 0):
                             albedo_bpy_image = bpy.data.images.load(os.path.join(texture_path, f"{tex:0>8X}.dds"))
+                            if (albedo_bpy_image == None):
+                                albedo_bpy_image = bpy.data.images.load(os.path.join(texture_path, f"{tex:0>8X}.png"))
                         if (tp == 15):
                             normal_bpy_image = bpy.data.images.load(os.path.join(texture_path, f"{tex:0>8X}.dds"))
+                            if (normal_bpy_image == None):
+                                normal_bpy_image = bpy.data.images.load(os.path.join(texture_path, f"{tex:0>8X}.png"))
 
 
 

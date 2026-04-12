@@ -2,7 +2,19 @@ from ..structwrapper import BinReader
 import os
 import struct
 from . import swizzle as deswizzler
+import json
+import subprocess
 # Credit: https://github.com/aboood40091/BNTX-Extractor/blob/master/bntx_extract.py
+
+astc_enc_path = ""
+addon_dir = os.path.dirname(os.path.abspath(__file__))
+if (os.path.exists(os.path.join(addon_dir, "..", "userpref.json"))):
+    with open(os.path.join(addon_dir, "..", "userpref.json"), "rt") as f:
+        j = json.loads(f.read())
+        astc_enc_path = j["astcEnc"]
+
+
+print(f"ASTC Encoder Registered as {astc_enc_path}")
 
 blk_dims = {  # format -> (blkWidth, blkHeight)
     0x1a: (4, 4), 0x1b: (4, 4), 0x1c: (4, 4),
@@ -24,7 +36,7 @@ bpps = {  # format -> bytes_per_pixel
     0x36: 0x10, 0x37: 0x10, 0x38: 0x10, 0x39: 0x10, 0x3a: 0x10,
 }
 
-formats = {
+dds_formats = {
     0x0b01: 'R8_G8_B8_A8_UNORM',
     0x0b06: 'R8_G8_B8_A8_SRGB',
     0x0701: 'R5_G6_B5_UNORM',
@@ -44,6 +56,68 @@ formats = {
     0x1f02: 'BC6H_SF16',
     0x2001: 'BC7_UNORM',
     0x2006: 'BC7_SRGB',
+}
+
+astc_blocksize = {
+    0x2d01: (4, 4),
+    0x2d06: (4, 4),
+    0x2e01: (5, 4),
+    0x2e06: (5, 4),
+    0x2f01: (5, 5),
+    0x2f06: (5, 5),
+    0x3001: (6, 5),
+    0x3006: (6, 5),
+    0x3101: (6, 6),
+    0x3106: (6, 6),
+    0x3201: (8, 5),
+    0x3206: (8, 5),
+    0x3301: (8, 6),
+    0x3306: (8, 6),
+    0x3401: (8, 8),
+    0x3406: (8, 8),
+    0x3501: (10, 5),
+    0x3506: (10, 5),
+    0x3601: (10, 6),
+    0x3606: (10, 6),
+    0x3701: (10, 8),
+    0x3706: (10, 8),
+    0x3801: (10, 10),
+    0x3806: (10, 10),
+    0x3901: (12, 10),
+    0x3906: (12, 10),
+    0x3a01: (12, 12),
+    0x3a06: (12, 12)
+}
+
+astc_formats = {
+    0x2d01: 'ASTC4x4',
+    0x2d06: 'ASTC4x4 SRGB',
+    0x2e01: 'ASTC5x4',
+    0x2e06: 'ASTC5x4 SRGB',
+    0x2f01: 'ASTC5x5',
+    0x2f06: 'ASTC5x5 SRGB',
+    0x3001: 'ASTC6x5',
+    0x3006: 'ASTC6x5 SRGB',
+    0x3101: 'ASTC6x6',
+    0x3106: 'ASTC6x6 SRGB',
+    0x3201: 'ASTC8x5',
+    0x3206: 'ASTC8x5 SRGB',
+    0x3301: 'ASTC8x6',
+    0x3306: 'ASTC8x6 SRGB',
+    0x3401: 'ASTC8x8',
+    0x3406: 'ASTC8x8 SRGB',
+    0x3501: 'ASTC10x5',
+    0x3506: 'ASTC10x5 SRGB',
+    0x3601: 'ASTC10x6',
+    0x3606: 'ASTC10x6 SRGB',
+    0x3701: 'ASTC10x8',
+    0x3706: 'ASTC10x8 SRGB',
+    0x3801: 'ASTC10x10',
+    0x3806: 'ASTC10x10 SRGB',
+    0x3901: 'ASTC12x10',
+    0x3906: 'ASTC12x10 SRGB',
+    0x3a01: 'ASTC12x12',
+    0x3a06: 'ASTC12x12 SRGB'
 }
 
 def extractBntx(filePath, outputDir):
@@ -94,9 +168,17 @@ def extractBntx(filePath, outputDir):
     unk2C = f.read_u32()
     numFaces = f.read_u32()
     sizeRange = f.read_u32()
+    unk38 = f.read_u32()
+    unk3C = f.read_u32()
+    unk40 = f.read_u32()
+    unk44 = f.read_u32()
+    unk48 = f.read_u32()
+    unk4C = f.read_u32()
+    imageSize = f.read_u32()
+    brti_alignment = f.read_u32()
 
-    if (fmt in formats):
-        print(f"BNTX Format: {formats[fmt]}")
+    if (fmt in dds_formats):
+        print(f"BNTX Format: {dds_formats[fmt]} (DXT)")
         
         x = open(outputDir+".dds", "wb")
         x.write(b"DDS ")
@@ -112,22 +194,46 @@ def extractBntx(filePath, outputDir):
         x.seek(pos+44)
         x.write(struct.pack("<I", 32))
         x.write(struct.pack("<I", 4))
-        if (formats[fmt].startswith("BC1")):
+
+        requireDXGI = False
+        if (dds_formats[fmt].startswith("BC1")):
             x.write(b"DXT1")
-        elif (formats[fmt].startswith("BC2")):
+        elif (dds_formats[fmt].startswith("BC2")):
             x.write(b"DXT3")
-        elif (formats[fmt].startswith("BC3")):
+        elif (dds_formats[fmt].startswith("BC3")):
             x.write(b"DXT5")
-        elif (formats[fmt].startswith("BC4")):
+        elif (dds_formats[fmt].startswith("BC4")):
             x.write(b"ATI1")
-        elif (formats[fmt].startswith("BC5")):
+        elif (dds_formats[fmt].startswith("BC5")):
             x.write(b"ATI2")
+        elif (dds_formats[fmt].startswith("BC7")):
+            requireDXGI=True
+            x.write(b"DX10")
+
+
         x.write(struct.pack("<I", 0))
         x.write(struct.pack("<I", 0))
         x.write(struct.pack("<I", 0))
         x.write(struct.pack("<I", 0))
         x.write(struct.pack("<I", 0))
         x.write(struct.pack("<I", 4096))
+
+        if (requireDXGI):
+            x.seek(128)
+            if (dds_formats[fmt] == 'BC7_UNORM'):
+                x.write(struct.pack("<I", 98))
+            elif (dds_formats[fmt] == 'BC7_SRGB'):
+                x.write(struct.pack("<I", 99))
+            elif (dds_formats[fmt] == 'BC6H_UF16'):
+                x.write(struct.pack("<I", 95))
+            elif (dds_formats[fmt] == 'BC6H_SF16'):
+                x.write(struct.pack("<I", 96))
+            x.write(struct.pack("<I", 3))
+            x.write(struct.pack("<I", 0))
+            x.write(struct.pack("<I", 1))
+            x.write(struct.pack("<I", 0))
+
+
 
         if (fmt >> 8) in blk_dims:
             blkWidth, blkHeight = blk_dims[fmt >> 8]
@@ -137,17 +243,51 @@ def extractBntx(filePath, outputDir):
 
         bpp = bpps[fmt >> 8]
 
-        x.seek(128)
+        if (requireDXGI):
+            x.seek(148)
+        else:
+            x.seek(128)
         
 
         f.seek(fileOffset+0x10)
-        unswizzled = deswizzler.deswizzle(width, height, blkWidth, blkHeight, bpp, tileMode, alignment, sizeRange, f.read(fileSize))
+
+        unswizzled = deswizzler.deswizzle(width, height, blkWidth, blkHeight, bpp, tileMode, brti_alignment, sizeRange, f.read(imageSize))
+
         x.write(unswizzled)
+
+    elif (fmt in astc_formats):
+        print(f"BNTX Format: {astc_formats[fmt]} (ASTC)")
+        x = open(outputDir+".astc", "wb")
+        x.write(struct.pack("<I", 1554098963)) # Magic
+        x.write(struct.pack("<B", astc_blocksize[fmt][0]))  
+        x.write(struct.pack("<B", astc_blocksize[fmt][1]))
+        x.write(struct.pack("<B", 1))
+        x.write(struct.pack("<I", width)[0:3])
+        x.write(struct.pack("<I", height)[0:3])
+        x.write(struct.pack("<I", 1)[0:3])
+
+        blkWidth, blkHeight = astc_blocksize[fmt]
+        bpp = bpps[fmt >> 8]
+        size = ((width + blkWidth - 1) // blkWidth) * ((height + blkHeight - 1) // blkHeight) * bpp
+
+        f.seek(fileOffset+0x10)
+        unswizzled = deswizzler.deswizzle(width, height, blkWidth, blkHeight, bpp, tileMode, brti_alignment, sizeRange, f.read(imageSize))
+        unswizzled = unswizzled[:size]
+
+        x.seek(0x10)
+        
+        x.write(unswizzled)
+        x.close()
+        
+        result = subprocess.run(
+            [astc_enc_path, "-dl", outputDir+".astc", outputDir+".png"],
+        )
 
 
     else:
         print("Unsupported BNTX format!")
         return
+
 
 
 
@@ -205,3 +345,8 @@ def extractTextures(wtaFilePath, wtpFilePath, targetDirectory):
 
 
     wtp.close()
+
+
+    for f in os.listdir(targetDirectory):
+        if (os.path.splitext(f)[1]==".bin"):
+            os.remove(os.path.join(targetDirectory, f))
