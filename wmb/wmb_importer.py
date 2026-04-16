@@ -128,13 +128,14 @@ class WMBMaterial:
     sampler_2_id = 0
 
     bpyMaterial = None
-    def __init__(self, file : BinReader, json=None):
+    def __init__(self, file : BinReader, json=None, texinfojson=None):
         self.parameter_data = {}
         self.matID = file.read_s16()
         self.flags = file.read_s16()
         datasize = materialSizeDictionary[self.matID] - 4
         data_start = file.tell()
         
+        self.texinfo = texinfojson
 
 
         if json is not None:
@@ -236,6 +237,13 @@ class WMBMaterial:
         alb_image_node.location = -100,-60
         if albedo_bpy_image is not None:
             alb_image_node.image = albedo_bpy_image
+            if ("flags" in self.texinfo):
+                print("flag")
+                if (self.matID in self.texinfo["flags"]):
+                    flag = self.texinfo["flags"][self.matID]
+                    if (flag == 268435456):
+                        links.new(alb_image_node.outputs['Alpha'], principled.inputs["Alpha"])
+
 
         nrm_image_node = nodes.new(type='ShaderNodeTexImage')
         nrm_image_node.location = -100,-500
@@ -244,11 +252,11 @@ class WMBMaterial:
             normalShader = nodes.new(type='ShaderNodeNormalMap')
             normalShader.location = 0, 0
             normalShader.hide = True
-            links.new(normalShader.outputs['Normal'], principled.inputs['Normal'])
             invertGreen = invertGreenChannel(nodes, nrm_image_node.location[1])
             links.new(nrm_image_node.outputs["Color"], invertGreen.inputs["Color"])
             links.new(invertGreen.outputs["Color"], normalShader.inputs["Color"])
-            links.new(normalShader.outputs["Normal"], principled.inputs["Normal"])
+            #links.new(normalShader.outputs["Normal"], principled.inputs["Normal"])
+            
 
 
 
@@ -279,7 +287,7 @@ class WMBMaterial2:
         self.id_type_map = tex_ids_to_type
         print(f"{size} - {(size - 24) // 4}")
         for i in range(5):
-            self.texture_data.append(struct.unpack("<I", file.read(4))[0])
+            self.texture_data.append(struct.unpack("<i", file.read(4))[0])
         for i in range((size - 24) // 4):
             self.data_data.append(struct.unpack("<f", file.read(4))[0])
 
@@ -381,32 +389,100 @@ class WMBMaterial2:
         wmb_material_list[material_name] = mat
         return mat
 
-def decode_bayo_switch_normal(packed_value):
-    # Ts makes NO SENSE!!!!
-    nx = packed_value & ((1 << 10) - 1)
+def decode_bayo_switch_normal(r):
+    '''nx = packed_value & ((1 << 10) - 1)
     ny = (packed_value >> 10) & ((1 << 10) - 1)
     nz = (packed_value >> 20) & ((1 << 10) - 1)
+    sign = nx & (1<<9)
+    if (sign):
+        nx ^= sign
+        nx = -(sign-nx)
+    
+    sign = ny & (1<<9)
+    if (sign):
+        ny ^= sign
+        ny = -(sign-ny)
 
-    def sign_extend(val):
-        sign = val & (1 << 9)
-        if sign:
-            val ^= sign
-            val = -(sign - val)
-        return val
+    sign = nz & (1<<9)
+    if (sign):
+        nz ^= sign
+        nz = -(sign-nz)
 
-    nx = sign_extend(nx)
-    ny = sign_extend(ny)
-    nz = sign_extend(nz)
+    fx = nx/((1<<9)-1)
+    fy = ny/((1<<9)-1)
+    fz = nz/((1<<9)-1)
 
-    scale = float((1 << 9) - 1)
-    fx = nx / scale
-    fy = ny / scale
-    fz = nz / scale
+    return fx, fy, fz'''
 
-    return fx, fy, fz
+    def sign_extend(value: int, bits: int) -> int:
+        sign_bit = 1 << (bits - 1)
+        if value & sign_bit:
+            value -= (1 << bits)
+        return value
+
+    x = (r >> 0)  & 0x3FF  # bits 0-9
+    y = (r >> 10) & 0x3FF  # bits 10-19
+    z = (r >> 20) & 0x3FF  # bits 20-29
+
+    scale = (1 << 9) - 1  # 511.0
+
+    return (
+        sign_extend(x, 10) / scale,
+        sign_extend(y, 10) / scale,
+        sign_extend(z, 10) / scale,
+    )
+
+def decode_bayonetta_normals(f : BinReader, nType):
+    bpyVector = Vector((0, 0, 0))
+
+    if (nType == "B1"):
+        f.advance(1)  # dummy byte[0]
+        nz, ny, nx = f.read_s8_array(3)  # byte[1], byte[2], byte[3]
+
+        bpyVector = Vector((nx / 127.0, ny / 127.0, nz / 127.0))
+
+        if bpyVector.length == 0:
+            bpyVector = Vector((0.0, 0.0, 1.0))
+        else:
+            bpyVector.normalize()
+    elif (nType == "B2"):
+        bayoPack = f.read_u32()
+
+        nx = bayoPack & ((1 << 10) - 1)
+        ny = (bayoPack >> 10) & ((1 << 10) - 1)
+        nz = (bayoPack >> 20) & ((1 << 10) - 1)
+        sign = nx & (1<<9)
+        if (sign):
+            nx ^= sign
+            nx = -(sign-nx)
+            
+        sign = ny & (1<<9)
+        if (sign):
+            ny ^= sign
+            ny = -(sign-ny)
+
+        sign = nz & (1<<9)
+        if (sign):
+            nz ^= sign
+            nz = -(sign-nz)
+
+        fx = nx/((1<<9)-1)
+        fy = ny/((1<<9)-1)
+        fz = nz/((1<<9)-1)
+
+        bpyVector = Vector((fx, fy, fz))
+
+        if bpyVector.length == 0:
+            bpyVector = Vector((0.0, 0.0, 1.0))
+        else:
+            bpyVector.normalize()
 
     
-def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bayo_2=False, normal_type="B1", target_col="WMB"):
+
+    return bpyVector
+
+    
+def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bayo_2=False, normal_type="B1", target_col="WMB", cmn_texture_src=""):
     import numpy as np
 
     def read_half_float(hf_bytes):
@@ -507,6 +583,10 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 tex_ids.append(tex_id)
                 tex_ids_to_type[tex_id] = flag
 
+        material_flag_info = {}
+        if (os.path.exists(os.path.join(textures, "texinfo.json"))):
+            material_flag_info = json.load(open(os.path.join(textures, "texinfo.json"), "rt"))
+
         wf.seek(offsetMaterialsOffsets)
         bayonettaMaterialList = []
         materialOffsets = wf.read_u32_array(numMaterials)
@@ -520,7 +600,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
 
             wf.seek(offsetMaterials + start) # not confusing at all :fire:
             if (bayo_2 == False):
-                materialData = WMBMaterial(wf, material_json) # TODO: Use WF System
+                materialData = WMBMaterial(wf, material_json, material_flag_info) # TODO: Use WF System
             else:
                 materialData = WMBMaterial2(wf, shader_names[x], size, tex_ids, tex_ids_to_type) # TODO: Use WF System
 
@@ -718,7 +798,8 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
 
                 u = read_half_float(wf.read(2))
                 v = read_half_float(wf.read(2))
-                if (normal_type == "B1"):
+                normal = decode_bayonetta_normals(wf, normal_type)
+                '''if (normal_type == "B1"):
                     wf.advance(1)
                     nz, ny, nx = wf.read_s8_array(3)
                     normal = Vector(((ny / 127.0), -(nz / 127.0), (nx / 127.0)))
@@ -729,11 +810,11 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 else:
                     nx, ny, nz = decode_bayo_switch_normal(wf.read_u32())
 
-                    normal = Vector(((ny), -(nz), (nx)))
+                    normal = Vector(((nx), (ny), (nz)))
                     if normal.length == 0:
                         normal = Vector((0.0, 0.0, 1.0))
                     else:
-                        normal.normalize()
+                        normal.normalize()'''
 
                 wf.advance(4)  # tangents - skip
 
@@ -758,7 +839,8 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
 
                 u = read_half_float(wf.read(2))
                 v = read_half_float(wf.read(2))
-                if (normal_type == "B1"):
+                normal = decode_bayonetta_normals(wf, normal_type)
+                '''if (normal_type == "B1"):
                     wf.advance(1)
                     nz, ny, nx = wf.read_s8_array(3)
                     normal = Vector(((ny / 127.0), -(nz / 127.0), (nx / 127.0)))
@@ -769,11 +851,11 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 else:
                     nx, ny, nz = decode_bayo_switch_normal(wf.read_u32())
 
-                    normal = Vector(((ny), -(nz), (nx)))
+                    normal = Vector(((nx), (ny), (nz)))
                     if normal.length == 0:
                         normal = Vector((0.0, 0.0, 1.0))
                     else:
-                        normal.normalize()
+                        normal.normalize()'''
 
                 wf.advance(4)  # tangents - skip
 
@@ -839,8 +921,10 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
 
             for batch_start in batch_starts:
                 wf.seek(batch_start)
+                print(batch_start)
                 batch_info = WMBBatchHeader(wf)
                 wf.advance(28)
+                
 
                 vertex_offset = 0
                 if (batch_info.flags & 0x1) != 0:

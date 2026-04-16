@@ -342,7 +342,7 @@ def extractTextures(wtaFilePath, wtpFilePath, targetDirectory):
     converted = set()
 
     for i in range(textureCount):
-        print(f"Extracting {i:0>8X}")
+        print(f"Extracting {i:0>8X} - {offsets[i]} - {sizes[i]}")
         wtp.seek(offsets[i])
         ext = ".bin"
         fileMagic = wtp.read(4)
@@ -353,6 +353,7 @@ def extractTextures(wtaFilePath, wtpFilePath, targetDirectory):
         with open(dir, "wb") as f:
             wtp.seek(offsets[i])
             f.write(wtp.read(sizes[i]))
+            f.close()
 
         if (fileMagic == b"BNTX"):
             print("Attempting to extract BNTX...")
@@ -362,6 +363,13 @@ def extractTextures(wtaFilePath, wtpFilePath, targetDirectory):
 
     wtp.close()
 
+    data = {}
+    data["flags"] = {}
+    for i in range(textureCount):
+        data["flags"][ids[i]] = flags[i]
+
+    j = open(os.path.join(targetDirectory, "texinfo.json"), "wt")
+    j.write(json.dumps(data))
 
     for f in os.listdir(targetDirectory):
         full = os.path.join(targetDirectory, f)

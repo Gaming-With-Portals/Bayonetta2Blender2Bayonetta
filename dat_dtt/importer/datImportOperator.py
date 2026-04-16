@@ -10,7 +10,7 @@ from ...utils.util import setExportFieldsFromImportFile, ShowMessageBox
 from ...consts import DAT_EXTENSIONS
 from ...wta_wtp.pg_texture import extractTextures
 
-def ImportData(only_extract, filepath, transform=None):
+def ImportData(only_extract, filepath, transform=None, isStageSubmesh=False):
     print("Importing data...")
     extension = os.path.splitext(filepath)[1]
     
@@ -44,6 +44,7 @@ def ImportData(only_extract, filepath, transform=None):
     
     scr_mode = False
     wmb_mode = False
+    lyt_mode = False
     wmb_ext = ".dat"
     scr_ext = ".dat"
     
@@ -58,8 +59,10 @@ def ImportData(only_extract, filepath, transform=None):
         if (os.path.exists(os.path.join(extract_dir, filename_without_extension + '.dtt'))):
             wmb_files = [x for x in os.listdir(os.path.join(extract_dir, filename_without_extension + '.dtt')) if os.path.splitext(x)[1] == ".wmb"]
             wmb_ext = ".dtt"
-
+    
     scr_files = [x for x in os.listdir(os.path.join(extract_dir, filename_without_extension + '.dat')) if os.path.splitext(x)[1] == ".scr"]
+
+    lyt_files = [x for x in os.listdir(os.path.join(extract_dir, filename_without_extension + '.dat')) if os.path.splitext(x)[1] == ".lyt"]
 
     if (len(wmb_files) > 0):
         wmb_mode = True
@@ -84,24 +87,34 @@ def ImportData(only_extract, filepath, transform=None):
     # WTA/WTP
     wtbFiles = [x for x in os.listdir(os.path.join(extract_dir, filename_without_extension + '.dat')) if os.path.splitext(x)[1] == ".wtb"]
     #wtbPath = os.path.join(extract_dir, filename_without_extension + '.dat', filename_without_extension + '.wtb')
-    wtaPath = os.path.join(extract_dir, filename_without_extension + '.dat', filename_without_extension + '.wta')
-    print(wtaPath)
+    wtaFiles = [x for x in os.listdir(os.path.join(extract_dir, filename_without_extension + '.dat')) if os.path.splitext(x)[1] == ".wta"]
+    #wtaPath = os.path.join(extract_dir, filename_without_extension + '.dat', filename_without_extension + '.wta')
   
     if (len(wtbFiles) > 0):
         print("Textures: WTB")
         for wtbPath in wtbFiles:
-            if (not wtbPath.startswith(os.path.splitext(wmb_files[0])[0])):
-                continue
+            if len(wmb_files) > 0:
+                if (not wtbPath.startswith(os.path.splitext(wmb_files[0])[0])):
+                    continue
+            elif len(scr_files) > 0:
+                if (not wtbPath.startswith(os.path.splitext(scr_files[0])[0])):
+                    continue
 
+            if "tex" in os.path.basename(wtbPath):
+                print("Skipping 'tex' entry!")
+                continue
+            
             wtbPath = os.path.join(extract_dir, filename_without_extension + '.dat', wtbPath)
             texturesExtractDir = os.path.join(extract_dir, filename_without_extension + '.dat', "textures")
             extractTextures(wtbPath, wtbPath, texturesExtractDir)
 
-    if os.path.isfile(wtaPath):
+    if (len(wtaFiles) > 0):
         print("Textures: WTA")
-        wtpPath = os.path.join(extract_dir, filename_without_extension + '.dat', filename_without_extension + '.wtp')
+        wtaPath = os.path.join(extract_dir, filename_without_extension + '.dat', wtaFiles[0])
+
+        wtpPath = os.path.join(extract_dir, filename_without_extension + '.dat', os.path.splitext(wtaPath)[0]+".wtp")
         if (not os.path.isfile(wtpPath)):
-            wtpPath = os.path.join(extract_dir, filename_without_extension + '.dtt', filename_without_extension + '.wtp')
+            wtpPath = os.path.join(extract_dir, filename_without_extension + '.dtt', os.path.splitext(wtaPath)[0]+".wtp")
 
         if (os.path.isfile(wtpPath)):
             texturesExtractDir = os.path.join(extract_dir, filename_without_extension + '.dat', "textures")
@@ -109,7 +122,8 @@ def ImportData(only_extract, filepath, transform=None):
         else:
             print("Couldn't find WTP, skipping textures")
 
-
+    if (len(lyt_files) > 0):
+        lyt_mode = True
 
 
     if only_extract:
@@ -120,7 +134,24 @@ def ImportData(only_extract, filepath, transform=None):
         wmb_filepath = os.path.join(extract_dir, filename_without_extension + wmb_ext, wmb_files[0])
         print("WMB Path: " + wmb_filepath)
         from ...wmb import wmb_importer
-        wmb_importer.ImportWMB(wmb_filepath, os.path.join(extract_dir, filename_without_extension + '.dat', "textures"), True, True)
+        if (isStageSubmesh):
+            wmb_importer.ImportWMB(wmb_filepath, os.path.join(extract_dir, filename_without_extension + '.dat', "textures"), True, True, target_col="LYT")
+        else:
+            wmb_importer.ImportWMB(wmb_filepath, os.path.join(extract_dir, filename_without_extension + '.dat', "textures"), True, True)
+
+    elif scr_mode:
+        # WMB
+        scr_filepath = os.path.join(extract_dir, filename_without_extension + scr_ext, scr_files[0])
+        print("SCR Path: " + scr_filepath)
+        from ...scr import scr_importer
+        scr_importer.ImportSCR(scr_filepath)
+
+    elif lyt_mode:
+        # LYT
+        lyt_filepath = os.path.join(extract_dir, filename_without_extension + ".dat", lyt_files[0])
+        print("LYT Path: " + lyt_filepath)
+        from ...scr import lyt_importer
+        lyt_importer.ImportLYT(lyt_filepath)
 
     setExportFieldsFromImportFile(filepath, True)
     enableVisibilitySelector()

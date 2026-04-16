@@ -3,12 +3,14 @@ from ..wmb import wmb_importer
 import bpy
 import os
 import mathutils, math
+from ..wta_wtp import pg_texture
 
 
 def ImportSCR(filepath):
     rawf = open(filepath, "rb")
-
+    extracted_texture_cmn = os.path.join(os.path.dirname(filepath), "textures")
     extracted_wmb_dir = os.path.join(os.path.dirname(filepath), "b2b_scr_extracted", os.path.basename(filepath))
+    extracted_textures_dir = os.path.join(extracted_wmb_dir, "textures")
     os.makedirs(extracted_wmb_dir, exist_ok=True)
 
 
@@ -52,6 +54,16 @@ def ImportSCR(filepath):
             wmb_offsets.append(f.read_u32())
         wmb_offsets.append(offset_textures)
 
+        f.seek(0, 2)
+        eof = f.tell()
+        f.seek(offset_textures)
+        txPk = open(os.path.join(extracted_wmb_dir,"scr.wtb"), "wb")
+        txPk.write(f.read(offset_textures-eof))
+        txPk.close()
+        pg_texture.extractTextures(os.path.join(extracted_wmb_dir,"scr.wtb"), os.path.join(extracted_wmb_dir,"scr.wtb"), extracted_textures_dir)
+
+        
+
 
         f.seek(0x10)
         for i in range(model_count):
@@ -62,7 +74,7 @@ def ImportSCR(filepath):
             rotation = f.read_f32_vector3()
             scale = f.read_f32_vector3()
             paramsA = f.read_s16_array(8)
-            flags = f.read_u32()
+            flags = str(f.read_u32())
             paramsB = f.read_s16_array(32)
 
 
@@ -76,7 +88,7 @@ def ImportSCR(filepath):
             x.write(wmb_data)
             x.close()
 
-            wmb_importer.ImportWMB(wmb_path, "", False, False, target_col="SCR")
+            wmb_importer.ImportWMB(wmb_path, extracted_textures_dir, False, False, target_col="SCR")
 
             model_collection = bpy.data.collections.get(scr_name)
             model_collection["flags"] = flags
@@ -132,7 +144,7 @@ def ImportSCR(filepath):
             x.write(wmb_data)
             x.close()
 
-            wmb_importer.ImportWMB(wmb_path, "", False, False, target_col="SCR")
+            wmb_importer.ImportWMB(wmb_path, extracted_texture_cmn, False, False, target_col="SCR")
 
             model_collection = bpy.data.collections.get(scr_name)
             model_collection["params"] = params
