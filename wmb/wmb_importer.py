@@ -466,9 +466,10 @@ def decode_bayonetta_normals(f : BinReader, nType):
             nz ^= sign
             nz = -(sign-nz)
 
-        fx = nx/((1<<9)-1)
-        fy = ny/((1<<9)-1)
-        fz = nz/((1<<9)-1)
+        mag = (1<<9)-1
+        fx = nx/mag
+        fy = ny/mag
+        fz = nz/mag
 
         bpyVector = Vector((fx, fy, fz))
 
@@ -1086,7 +1087,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 # extra vertex color
                 local_extra_vcolors = [extra_vcolors[i] for i in used_indices] if extra_vcolors else []
                 if extra_vcolors:
-                    extra_color_layer = bm.loops.layers.color.new("Col")
+                    extra_color_layer = bm.loops.layers.color.new("ExCol")
                     for face in bm.faces:
                         for loop in face.loops:
                             loop[extra_color_layer] = local_extra_vcolors[loop.vert.index][:4]

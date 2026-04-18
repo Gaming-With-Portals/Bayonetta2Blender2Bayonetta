@@ -56,9 +56,15 @@ class EXPORT_BN_MainMenu(bpy.types.Menu):
 class B2BConfiguration(bpy.types.AddonPreferences):
     bl_idname = __package__
     astcEncDir:  bpy.props.StringProperty(name="ASTC Encoder Path", subtype='FILE_PATH')
+    enableBayo: bpy.props.BoolProperty(name="Enable 'Bayonetta' Import Options")
+    enableVanquish: bpy.props.BoolProperty(name="Enable 'Vanquish' Import Options")
 
     def draw(self, context):
         layout: bpy.types.UILayout = self.layout
+
+        box = layout.box()
+        box.label(text="Game Setup")
+
 
         box = layout.box()
         box.label(text="ASTC Encoder Setup")
@@ -66,6 +72,7 @@ class B2BConfiguration(bpy.types.AddonPreferences):
 
         op = box.operator("wm.url_open", text="Get ASTC Encoder", icon='URL')
         op.url = "https://github.com/ARM-software/astc-encoder/releases/"
+
 
 
 classes = (

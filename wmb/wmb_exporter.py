@@ -33,28 +33,25 @@ def reportError(err_string):
     EXCEPT_AFTER_GENERATION = True
 
 def pack_b2_normal(fx, fy, fz):
-        scale = float((1 << 9) - 1) 
+    mag = (1<<9)-1
+    def pack_component(f):
+        i = int(f * float(mag))
+        i = min(max(i, -mag), mag)
+        return i & ((1 << 10) - 1) 
 
-        nx = int(round(fx * scale))
-        ny = int(round(fy * scale))
-        nz = int(round(fz * scale))
-        
-        nx = max(-511, min(511, nx))
-        ny = max(-511, min(511, ny))
-        nz = max(-511, min(511, nz))
-        
-        def sign_pack(val):
-            if val < 0:
-                sign = (1 << 9)
-                val = sign + val 
-                val |= sign
-            return val & ((1 << 10) - 1)
-        
-        nx = sign_pack(nx)
-        ny = sign_pack(ny)
-        nz = sign_pack(nz)
+    nx = pack_component(fx)
+    ny = pack_component(fy)
+    nz = pack_component(fz)
+    mask = (1<<10)-1
+    v = 0
+    v |= nz & mask
+    v <<= 10
+    v |= ny & mask
+    v <<= 10
+    v |= nx & mask
 
-        return nx | (ny << 10) | (nz << 20)
+
+    return v
 
 class WMBVertexChunk:
 
@@ -1023,7 +1020,8 @@ def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
         f.write(uv_bytes)
 
         if (generated_data.bayo_2):
-            f.write(struct.pack('<I', pack_b2_normal(data[1][2] * -1, data[1][0], data[1][1]))) # Normals
+            fx, fy, fz = data[1][0], data[1][1], data[1][2]
+            f.write(struct.pack('<I', pack_b2_normal(fx, -fz, fy))) # Normals
 
         else:
             nx = int(round(data[1][0] * 127))
