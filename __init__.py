@@ -17,7 +17,7 @@ from .ui.material_ui import BayoMaterialPanel, BayoMaterialToJSON, BayoJSONToMat
 from .ui.material_ui import BayoMaterialPanelAdvanced
 from .ui.mesh_ui import BayoObjectPanel
 from .utils.util import BayonettaVector4Property
-from .wmb.wmb_materials import BayonettaParameter, BayonettaTexture
+from .wmb.wmb_materials import BayonettaParameter, BayonettaTexture, Bayonetta2Data, BayonettaExMaterialData
 from .wmb.wmb_materials import BayoMaterialDataProperty
 from .scr.scrOperators import ImportBayoSCR, ImportVanqLYT
 from .utils.utilOperators import RipMeshByUVIslands, RemoveUnusedVertexGroups
@@ -80,6 +80,8 @@ class B2BConfiguration(bpy.types.AddonPreferences):
 classes = (
     BayonettaParameter,
     BayonettaTexture,
+    Bayonetta2Data,
+    BayonettaExMaterialData,
     BayoMaterialDataProperty,
     ImportBayoWMB,
     ImportNierDat,

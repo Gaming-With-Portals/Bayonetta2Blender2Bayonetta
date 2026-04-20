@@ -427,19 +427,19 @@ class Bayonetta2Material():
     def __init__(self):
         self.id = 0
         self.flag = 0
-        self.textures = []
         self.datas = []
+        self.exdatas = []
         self.shader_name = []
 
     def fetch_size(self):
-        return 0x4 + (0x4*len(self.textures))+(0x4*len(self.datas))
+        return 0x4 + (0x4*len(self.datas))+(0x4*len(self.exdatas))
     
     def write(self, f):
         f.write(struct.pack("<H", self.id))
         f.write(struct.pack("<H", self.flag))
-        for tex in self.textures:
-            f.write(struct.pack("<I", tex))
         for data in self.datas:
+            f.write(struct.pack("<I", data))
+        for data in self.exdatas:
             f.write(struct.pack("<f", data))
 
 class WMBMaterialBlob:
@@ -473,11 +473,25 @@ class WMBMaterialBlob:
         else:
             for i, mat in enumerate(material_map):
                 emat = Bayonetta2Material()
+
+                texture_storage_info = {}
+                for tex in mat.bayo_data.textures:
+                    texture_storage_info[tex.position] = int(tex.data)
+                for dat in mat.bayo_data.b2_data:
+                    texture_storage_info[dat.position] = struct.unpack("<I", struct.pack("<f", dat.data))[0]
+
+                for x in range(len(texture_storage_info.keys())):
+                    emat.datas.append(texture_storage_info[x])
+
+                for exdat in mat.bayo_data.ex_material_data:
+                    emat.exdatas.append(exdat.data)
+                
+
                 emat.id = i
                 emat.flag = mat.get("flags", 0)
-                emat.textures = mat.get("raw_data", [])
-                emat.datas = mat.get("data", [])
-                emat.shader_name = mat.get("shader", "")
+                '''emat.textures = mat.get("raw_data", [])
+                emat.datas = mat.get("data", [])'''
+                emat.shader_name = mat.bayo_data.shader
                 self.materials.append(emat)
 
 
@@ -677,22 +691,11 @@ class WMBMesh():
 # -- Bayonetta 2 --
 class WMBExMaterialInfo():
     def __init__(self, arm_obj, materials):
-        self.textures = []
-        self.rd = []
+        self.tex_info = set()
 
         for mat in materials:
-            for tex in mat.get("texture_ids", []):
-                if tex not in self.textures:
-                    self.textures.append(tex)
-            for tex in mat.get("raw_data"):
-                self.rd.append(tex)
-            
-
-        self.flags = []
-        for tex in self.textures:
-            if f"txtr{tex}" not in arm_obj:
-                print(f"WARNING!! Missing texture flag for {tex}")
-            self.flags.append(arm_obj.get(f"txtr{tex}", 0))
+            for tex in mat.bayo_data.textures:
+                self.tex_info.add((int(tex.data), int(tex.flag)))
         
 
 class WMBDataGenerator:
@@ -911,7 +914,7 @@ class WMBDataGenerator:
             offset_ticker += (len(material_remap) * 16)
             offset_ticker = align(offset_ticker, ALIGN_TARGET)
             self.texture_list_offset = offset_ticker
-            offset_ticker += (8 * len(self.exmat_blob.textures)) + 0x4
+            offset_ticker += (8 * len(self.exmat_blob.tex_info)) + 0x4
 
             offset_ticker = align(offset_ticker, ALIGN_TARGET)
 
@@ -1132,10 +1135,11 @@ def WMB0_Write_B2_ExMaterialInfo(f, generated_data : WMBDataGenerator):
         f.write(mat.shader_name.ljust(16, '\x00').encode('utf-8'))
 
     f.seek(generated_data.texture_list_offset)
-    f.write(struct.pack("<I", len(generated_data.exmat_blob.textures)))
-    for i in range(len(generated_data.exmat_blob.textures)):
-        f.write(struct.pack("<I", generated_data.exmat_blob.textures[i]))
-        f.write(struct.pack("<I", generated_data.exmat_blob.flags[i]))
+    f.write(struct.pack("<I", len(generated_data.exmat_blob.tex_info)))
+    for idx, flag in generated_data.exmat_blob.tex_info:
+        f.write(struct.pack("<I", idx))
+        f.write(struct.pack("<I", flag))
+
 
 def WMB0_Write_Mesh_Offsets(f, generated_data : WMBDataGenerator):
     for ofst in generated_data.mesh_blob.offsets:

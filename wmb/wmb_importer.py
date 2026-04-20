@@ -287,7 +287,7 @@ class WMBMaterial2:
         self.id_type_map = tex_ids_to_type
         print(f"{size} - {(size - 24) // 4}")
         for i in range(5):
-            self.texture_data.append(struct.unpack("<i", file.read(4))[0])
+            self.texture_data.append(struct.unpack("<I", file.read(4))[0])
         for i in range((size - 24) // 4):
             self.data_data.append(struct.unpack("<f", file.read(4))[0])
 
@@ -308,11 +308,25 @@ class WMBMaterial2:
         mat.node_tree.nodes.clear()
 
         i = 0
+        texture_idx = 0
+        data_idx = 0
         for tex in self.texture_data:
-            mat.bayo_data.textures.add()
-            mat.bayo_data.textures[i].id = self.texture_data[i]
-
+            if (tex in self.tex_id_list):
+                mat.bayo_data.textures.add()
+                mat.bayo_data.textures[texture_idx].data = str(self.texture_data[i])
+                mat.bayo_data.textures[texture_idx].flag = self.id_type_map[self.texture_data[i]]
+                mat.bayo_data.textures[texture_idx].position = i
+                texture_idx+=1
+            else:
+                mat.bayo_data.b2_data.add()
+                mat.bayo_data.b2_data[data_idx].data = struct.unpack("<f", struct.pack("<I", self.texture_data[i]))[0]
+                mat.bayo_data.b2_data[data_idx].position = i
+                data_idx+=1
             i+=1
+
+        for i, dat in enumerate(self.data_data):
+            mat.bayo_data.ex_material_data.add()
+            mat.bayo_data.ex_material_data[i].data = dat
 
         mat["id"] = self.matID
         mat["flags"] = self.flags
@@ -325,11 +339,13 @@ class WMBMaterial2:
             else:
                 self.texture_datas.append(tex)
 
-        mat["texture_ids"] = self.texture_ids
-        mat["texture_data"] = self.texture_datas
-        mat["raw_data"] = self.texture_data
-        mat["data"] = self.data_data
-        mat["shader"] = self.shader_name
+        #mat["texture_ids"] = self.texture_ids
+        #mat["texture_data"] = self.texture_datas
+        #mat["raw_data"] = self.texture_data
+        #mat["data"] = self.data_data
+
+        mat.bayo_data.shader = self.shader_name
+
 
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links

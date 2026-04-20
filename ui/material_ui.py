@@ -29,6 +29,30 @@ class BayoMaterialToJSON(bpy.types.Operator):
             }
             data_structure["parameters"].append(serialized_param)
 
+        if (material.bayo_data.bayonetta_2):
+            data_structure["shader"] = material.bayo_data.shader
+
+            data_structure["textures"] = []
+            for tex in material.bayo_data.textures:
+                serialized_param = {}
+                serialized_param["data"] = tex.data
+                serialized_param["flag"] = tex.flag
+                serialized_param["pos"] = tex.position
+                data_structure["textures"].append(serialized_param)
+
+            data_structure["datas"] = []
+            for tex in material.bayo_data.b2_data:
+                serialized_param = {}
+                serialized_param["data"] = tex.data
+                serialized_param["pos"] = tex.position
+                data_structure["datas"].append(serialized_param)
+
+            data_structure["exdatas"] = []
+            for tex in material.bayo_data.ex_material_data:
+                data_structure["exdatas"].append(tex.data)
+
+
+
         material["wmb_mat_as_json"] = json.dumps(data_structure)
         bpy.context.window_manager.clipboard = bpy.context.material["wmb_mat_as_json"]
         self.report({'INFO'}, "Copied JSON")
@@ -75,6 +99,33 @@ class BayoJSONToMaterial(bpy.types.Operator):
                     material.bayo_data.parameters[i].value_vec4 = param["data"]["vec4"]
 
                 i+=1
+
+        else:
+            material.bayo_data.bayonetta_2 = True
+            material.bayo_data.type = data_structure["type"]
+            material.bayo_data.flags = data_structure["flags"]
+
+            material.bayo_data.shader = data_structure["shader"]
+
+            material.bayo_data.textures.clear()
+            for i, tex in enumerate(data_structure["textures"]):
+                material.bayo_data.textures.add()
+                material.bayo_data.textures[i].data = tex["data"]
+                material.bayo_data.textures[i].flag = tex["flag"]
+                material.bayo_data.textures[i].pos = tex["pos"]
+
+            material.bayo_data.b2_data.clear()
+            for i, tex in enumerate(data_structure["datas"]):
+                material.bayo_data.b2_data.add()
+                material.bayo_data.b2_data[i].data = tex["data"]
+                material.bayo_data.b2_data[i].pos = tex["pos"]
+
+            material.bayo_data.ex_material_data.clear()
+            for i, tex in enumerate(data_structure["exdatas"]):
+                material.bayo_data.ex_material_data.add()
+                material.bayo_data.ex_material_data[i].data = tex
+
+
             
 
 
@@ -100,7 +151,16 @@ class BayoMaterialPanelAdvanced(bpy.types.Panel):
             return
 
         if (mat.bayo_data.bayonetta_2):
-            pass
+            layout.label(text="Texture Data:")
+            for dat in mat.bayo_data.b2_data:
+                box = layout.box()
+                box.prop(dat, "data", text="Data")
+            layout.label(text="Additional Info:")
+            box = layout.box()
+            for i, dat in enumerate(mat.bayo_data.ex_material_data):
+                
+                box.prop(dat, "data", text=f"Prop {i}")
+
         else:
             box = layout.box()
             for param in mat.bayo_data.parameters:
@@ -152,6 +212,12 @@ class BayoMaterialPanel(bpy.types.Panel):
             box = layout.box()
             for i, param in enumerate(mat.bayo_data.textures):
                 box.prop(param.id, "value_int", f"{i:02}")
+        else:
+            layout.prop(mat.bayo_data, "shader")
+            for tex in mat.bayo_data.textures:
+                box = layout.box()
+                box.prop(tex, "data", text="ID")
+                box.prop(tex, "flag", text="Type")
         
         layout.operator(BayoMaterialToJSON.bl_idname, text="Copy Material")
         layout.operator(BayoJSONToMaterial.bl_idname, text="Paste Material")

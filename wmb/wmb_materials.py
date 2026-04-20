@@ -159,7 +159,16 @@ class BayonettaParameter(bpy.types.PropertyGroup):
     value_vec4: bpy.props.FloatVectorProperty(size=4, default=(0.0, 0.0, 0.0, 0.0))
 
 class BayonettaTexture(bpy.types.PropertyGroup):
-    id: bpy.props.IntProperty(default=0)
+    data: bpy.props.StringProperty(default="0")
+    flag: bpy.props.IntProperty(default=0)
+    position: bpy.props.IntProperty(default=0)
+
+class Bayonetta2Data(bpy.types.PropertyGroup):
+    data: bpy.props.FloatProperty(default=0)
+    position: bpy.props.IntProperty(default=0)
+
+class BayonettaExMaterialData(bpy.types.PropertyGroup):
+    data: bpy.props.FloatProperty(default=0)
 
 class BayoMaterialDataProperty(bpy.types.PropertyGroup):
     type: bpy.props.IntProperty(
@@ -182,3 +191,6 @@ class BayoMaterialDataProperty(bpy.types.PropertyGroup):
 
     parameters: bpy.props.CollectionProperty(type=BayonettaParameter)
     textures: bpy.props.CollectionProperty(type=BayonettaTexture)
+    b2_data: bpy.props.CollectionProperty(type=Bayonetta2Data)
+    ex_material_data: bpy.props.CollectionProperty(type=BayonettaExMaterialData)
+    shader: bpy.props.StringProperty(name="Shader",default="")
