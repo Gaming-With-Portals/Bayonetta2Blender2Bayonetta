@@ -19,14 +19,14 @@ from .ui.mesh_ui import BayoObjectPanel
 from .utils.util import BayonettaVector4Property
 from .wmb.wmb_materials import BayonettaParameter, BayonettaTexture
 from .wmb.wmb_materials import BayoMaterialDataProperty
-from .scr.scrOperators import ImportBayoSCR
-from .utils.utilOperators import RipMeshByUVIslands
+from .scr.scrOperators import ImportBayoSCR, ImportVanqLYT
+from .utils.utilOperators import RipMeshByUVIslands, RemoveUnusedVertexGroups
 
 class BayonettaObjectMenu(bpy.types.Menu):
     bl_idname = 'OBJECT_MT_b2b2b'
     bl_label = 'Bayonetta Tools'
     def draw(self, context):
-        
+        self.layout.operator(RemoveUnusedVertexGroups.bl_idname, icon="GROUP_VERTEX")
         self.layout.operator(RipMeshByUVIslands.bl_idname, icon="UV_ISLANDSEL")
 
 preview_collections = {}
@@ -38,10 +38,12 @@ class IMPORT_BN_MainMenu(bpy.types.Menu):
     def draw(self, context):
         pcoll = preview_collections["main"]
         raiden_icon = pcoll["bayo"] 
+        vanquish_icon = pcoll["vanq"] 
    
         self.layout.operator(ImportNierDat.bl_idname, text="Archive File (.dat, .dtt)", icon_value=raiden_icon.icon_id)
         self.layout.operator(ImportBayoWMB.bl_idname, text="Model File (.wmb)", icon_value=raiden_icon.icon_id)
         self.layout.operator(ImportBayoSCR.bl_idname, text="Stage File (.scr)", icon_value=raiden_icon.icon_id)
+        #self.layout.operator(ImportVanqLYT.bl_idname, text="Vanquish Stage (.lyt)")
 
 
 class EXPORT_BN_MainMenu(bpy.types.Menu):
@@ -128,6 +130,7 @@ def register():
     pcoll = bpy.utils.previews.new()
     my_icons_dir = os.path.join(os.path.dirname(__file__), "icons")
     pcoll.load("bayo", os.path.join(my_icons_dir, "bayo.png"), 'IMAGE')
+    pcoll.load("vanq", os.path.join(my_icons_dir, "vanq.png"), 'IMAGE')
     preview_collections["main"] = pcoll
 
     for cls in classes:

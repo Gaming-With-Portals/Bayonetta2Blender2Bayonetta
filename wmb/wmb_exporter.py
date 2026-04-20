@@ -90,8 +90,7 @@ class WMBVertexChunk:
             
             sorted_loops = sorted(eval_mesh.loops, key=lambda loop: loop.vertex_index)
 
-            color_layer = eval_mesh.vertex_colors.get("Col", None)
-
+            color_layer = eval_mesh.vertex_colors.get("ExCol", None)
             
             uv_layer = eval_mesh.uv_layers.active
             if (uv_layer is None):
@@ -231,10 +230,10 @@ class WMBVertexChunk:
                 vertex_info.append((uv[0], uv[1]))
 
                 def blenderColorToBayo(color):
-                    r = int(color[0]/255)
-                    g = int(color[1]/255)
-                    b = int(color[2]/255)
-                    a = int(color[3]/255)
+                    r = int(color[0]*255)
+                    g = int(color[1]*255)
+                    b = int(color[2]*255)
+                    a = int(color[3]*255)
                     return (r, g, b, a)
 
                 ex_vertex_info.append(blenderColorToBayo(color_map.get(vertex.index, (0, 0, 0, 0))))
@@ -1050,7 +1049,7 @@ def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
 
     f.seek(generated_data.offset_ex_vertexes)
     for data in generated_data.vertex_data.exvertex_infos:
-        f.write(struct.pack("<bbbb", *data[0]))
+        f.write(struct.pack("<BBBB", *data[0]))
         if (generated_data.vertex_data.num_mapping == 2):
             uv_bytes = float_to_half_bytes(data[1][0]) + float_to_half_bytes(1 - data[1][1])
             f.write(uv_bytes)
