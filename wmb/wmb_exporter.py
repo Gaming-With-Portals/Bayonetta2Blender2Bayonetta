@@ -85,7 +85,8 @@ class WMBVertexChunk:
             
             eval_mesh = eval_obj.to_mesh()
 
-            eval_mesh.calc_tangents(uvmap=eval_mesh.uv_layers.active.name)
+            if (eval_mesh.uv_layers.active is not None):
+                eval_mesh.calc_tangents(uvmap=eval_mesh.uv_layers.active.name)
 
             
             sorted_loops = sorted(eval_mesh.loops, key=lambda loop: loop.vertex_index)
@@ -124,7 +125,7 @@ class WMBVertexChunk:
 
 
             obj["vertex_start"] = vertex_ticker
-            if (obj["dummy"]):
+            '''if (obj["dummy"]):
                 for i in range(3):
                     vertex_info = []
                     ex_vertex_info = []
@@ -148,8 +149,8 @@ class WMBVertexChunk:
                     self.exvertex_infos.append(ex_vertex_info)
                     vertex_ticker+=1
                 obj["vertex_end"] = vertex_ticker
-                self.total_vertices += 3
-                continue
+                self.total_vertices += 1
+                continue'''
 
             self.total_vertices += len(eval_mesh.vertices)
 
@@ -245,6 +246,10 @@ class WMBVertexChunk:
 
                 self.vertex_infos.append(vertex_info)
                 self.exvertex_infos.append(ex_vertex_info)
+
+                if (obj["dummy"]):
+                    break # Quit after the first iteration
+
             obj["vertex_end"] = vertex_ticker
 
 def getBoneID(boneName):
@@ -550,7 +555,7 @@ class WMBBatch():
         self.has_bone_refs = 0
         self.vertex_start = obj["vertex_start"]
         if (self.is_dummy):
-            self.vertex_end = obj["vertex_start"]+3
+            self.vertex_end = obj["vertex_start"]+1
         else:
             self.vertex_end = obj["vertex_end"]
 
@@ -581,11 +586,10 @@ class WMBBatch():
             ])'''
         
         if (self.is_dummy):
-            tri = mesh.loop_triangles[0]
             self.indices.extend([
-                tri.vertices[0],
-                tri.vertices[2],
-                tri.vertices[1],
+                0,
+                0,
+                0,
             ])
         else:
             for tri in mesh.loop_triangles:
@@ -601,6 +605,9 @@ class WMBBatch():
         
         for global_id, local_id in sorted(batch_ref_table.items(), key=lambda x: x[1]):
             self.required_bones.append(global_id)
+
+        if (self.is_dummy):
+            self.required_bones = [0]
 
 
         '''for group in obj.vertex_groups:

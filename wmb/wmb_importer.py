@@ -218,7 +218,6 @@ class WMBMaterial:
             albedo_bpy_image = wmb_texture_list[self.sampler_1_id]
 
         else:
-            print(os.path.join(texture_path, f"{self.sampler_1_id:0>8X}.dds"))
             if (os.path.isfile(os.path.join(texture_path, f"{self.sampler_1_id:0>8X}.dds"))):
                 albedo_bpy_image = bpy.data.images.load(os.path.join(texture_path, f"{self.sampler_1_id:0>8X}.dds"))
 
@@ -228,7 +227,6 @@ class WMBMaterial:
             normal_bpy_image = wmb_texture_list[self.sampler_2_id]
 
         else:
-            print(os.path.join(texture_path, f"{self.sampler_2_id:0>8X}.dds"))
             if (os.path.isfile(os.path.join(texture_path, f"{self.sampler_2_id:0>8X}.dds"))):
                 normal_bpy_image = bpy.data.images.load(os.path.join(texture_path, f"{self.sampler_2_id:0>8X}.dds"))
 
@@ -238,7 +236,6 @@ class WMBMaterial:
         if albedo_bpy_image is not None:
             alb_image_node.image = albedo_bpy_image
             if ("flags" in self.texinfo):
-                print("flag")
                 if (self.matID in self.texinfo["flags"]):
                     flag = self.texinfo["flags"][self.matID]
                     if (flag == 268435456):
@@ -285,7 +282,6 @@ class WMBMaterial2:
         self.shader_name = shader_name
         self.tex_id_list = ids
         self.id_type_map = tex_ids_to_type
-        print(f"{size} - {(size - 24) // 4}")
         for i in range(5):
             self.texture_data.append(struct.unpack("<I", file.read(4))[0])
         for i in range((size - 24) // 4):
@@ -918,7 +914,6 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
             print(f"[>] Loading Mesh {x}... ", end="")
             wf.seek(offsetMeshes + mesh_offsets[x])
             current_mesh_pos = wf.tell()
-            print("Current Pos: " + hex(current_mesh_pos))
             wf.read(2)
             num_batches = wf.read_u16()
             wf.read(4)
@@ -941,7 +936,6 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
 
             for batch_start in batch_starts:
                 wf.seek(batch_start)
-                print(batch_start)
                 batch_info = WMBBatchHeader(wf)
                 wf.advance(28)
                 
@@ -1036,6 +1030,8 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 obj["data"] = mesh_datas[mesh_index]
                 obj["vertex_start"] = batch_faces[1].vertexStart
                 obj["vertex_end"] = batch_faces[1].vertexEnd
+
+
                 model_collection.objects.link(obj)
                 obj.rotation_euler = (math.radians(90), 0, 0)
                 if (bayo_2):
@@ -1053,7 +1049,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 obj.active_material_index = 0
 
                 if (len(local_vertices) == 1):
-                    obj["empty"] = True
+                    obj["dummy"] = True
                     continue
 
                 mesh.from_pydata(local_vertices, [], remapped_faces)
@@ -1122,6 +1118,9 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 else:
                     if (batch_faces[1].unknownE1 == 32 and batch_faces[1].unknownE2 == 15):
                         obj.hide_set(hide_shadow_meshes)
+
+                if (obj["dummy"]):
+                    obj.hide_set(hide_shadow_meshes)
 
 
     return {'FINISHED'}
