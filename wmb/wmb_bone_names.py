@@ -29,8 +29,17 @@ wmb0_bonenames = {
     27: "toe_L"
 }
 
+wmb0_b2_bonenames = {
+}
+
 def getBoneName(glob_id, loc_id, override=False):
     if (glob_id in wmb0_bonenames and override):
         return wmb0_bonenames[glob_id]
+    else:
+        return f"bone{loc_id:04}"
+    
+def getBoneNameB2(glob_id, loc_id, override=False):
+    if (glob_id in wmb0_b2_bonenames and override):
+        return wmb0_b2_bonenames[glob_id]
     else:
         return f"bone{loc_id:04}"

@@ -7,7 +7,7 @@ import math
 from mathutils import Vector
 import bmesh
 from .wmb_materials import materialSizeDictionary
-from .wmb_bone_names import getBoneName
+from .wmb_bone_names import getBoneName, getBoneNameB2
 from ..structwrapper import BinReader
 
 wmb_material_list = {}
@@ -678,7 +678,10 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
 
                 for item in parts_map:
                     #bone_name_map[item[1]] = f"bone{item[1]:03}"
-                    bone_name_map[item[1]] = getBoneName(item[1], item[0], use_custom_bone_names)
+                    if (bayo_2):
+                        bone_name_map[item[1]] = getBoneNameB2(item[1], item[0], use_custom_bone_names)
+                    else:
+                        bone_name_map[item[1]] = getBoneName(item[1], item[0], use_custom_bone_names)
                     bone_id_map[item[1]] = item[0]
 
 
