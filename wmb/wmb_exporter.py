@@ -14,6 +14,7 @@ OP_INSTANCE = None
 EXCEPT_AFTER_GENERATION = False
 COPY_UV_1_AS_2 = True
 BAYONETTA_2 = False
+EXPORT_AS_STATIC_MESH = False
 
 bone_name_to_id_map = {}
 
@@ -181,39 +182,40 @@ class WMBVertexChunk:
                     bone_weights.append(weight)
                     bone_indices.append(bone_id)
 
-                pairs = list(zip(bone_weights, bone_indices))
-                pairs = sorted(pairs, key=lambda p: p[0], reverse=True)[:MAX_WEIGHTS]
+                if (not EXPORT_AS_STATIC_MESH):
+                    pairs = list(zip(bone_weights, bone_indices))
+                    pairs = sorted(pairs, key=lambda p: p[0], reverse=True)[:MAX_WEIGHTS]
 
-                float_weights = [p[0] for p in pairs]
-                sel_indices = [p[1] for p in pairs]
+                    float_weights = [p[0] for p in pairs]
+                    sel_indices = [p[1] for p in pairs]
 
-                total = sum(float_weights)
-                if total > 0:
-                    float_weights = [w / total for w in float_weights]
-                else:
-                    float_weights = [0.0] * len(float_weights)
+                    total = sum(float_weights)
+                    if total > 0:
+                        float_weights = [w / total for w in float_weights]
+                    else:
+                        float_weights = [0.0] * len(float_weights)
 
-                while len(float_weights) < MAX_WEIGHTS:
-                    float_weights.append(0.0)
-                    sel_indices.append(0)
+                    while len(float_weights) < MAX_WEIGHTS:
+                        float_weights.append(0.0)
+                        sel_indices.append(0)
 
-                int_weights = [int(w * 255.0) for w in float_weights]
+                    int_weights = [int(w * 255.0) for w in float_weights]
 
-                rem = 255 - sum(int_weights)
-                if rem != 0:
-                    order = sorted(range(MAX_WEIGHTS), key=lambda i: float_weights[i], reverse=True)
-                    i = 0
-                    while rem != 0:
-                        idx = order[i]
-                        if rem > 0 and int_weights[idx] < 255:
-                            int_weights[idx] += 1
-                            rem -= 1
-                        elif rem < 0 and int_weights[idx] > 0:
-                            int_weights[idx] -= 1
-                            rem += 1
-                        i = (i + 1) % MAX_WEIGHTS
+                    rem = 255 - sum(int_weights)
+                    if rem != 0:
+                        order = sorted(range(MAX_WEIGHTS), key=lambda i: float_weights[i], reverse=True)
+                        i = 0
+                        while rem != 0:
+                            idx = order[i]
+                            if rem > 0 and int_weights[idx] < 255:
+                                int_weights[idx] += 1
+                                rem -= 1
+                            elif rem < 0 and int_weights[idx] > 0:
+                                int_weights[idx] -= 1
+                                rem += 1
+                            i = (i + 1) % MAX_WEIGHTS
 
-                int_weights = [max(0, min(255, w)) for w in int_weights]
+                    int_weights = [max(0, min(255, w)) for w in int_weights]
 
 
 
@@ -225,8 +227,13 @@ class WMBVertexChunk:
                 tangent_info = tangent_map.get(vertex.index, (0.0, 0.0, 0.0, 1.0))
 
                 vertex_info.append(tangent_info)
-                vertex_info.append(tuple(sel_indices))
-                vertex_info.append(tuple(int_weights))
+                if (not EXPORT_AS_STATIC_MESH): # This is so bad LMAO
+                    vertex_info.append(tuple(sel_indices))
+                    vertex_info.append(tuple(int_weights))
+                else:
+                    vertex_info.append((0, 0, 0, 0))
+                    vertex_info.append((0, 0, 0, 0))
+
                 vertex_info.append(uv.copy())
                 vertex_info.append((uv[0], uv[1]))
 
@@ -517,7 +524,7 @@ class WMBMeshBlob():
         self.meshes = []
 
         
-        for obj in arm_obj.children:
+        for obj in arm_obj.objects:
             if obj.type != 'MESH':
                 continue
             name_parts = obj.name.split("-")
@@ -600,14 +607,19 @@ class WMBBatch():
                 ])
         
 
-        self.has_bone_refs = 1
-        self.required_bones = []
-        
-        for global_id, local_id in sorted(batch_ref_table.items(), key=lambda x: x[1]):
-            self.required_bones.append(global_id)
 
-        if (self.is_dummy):
-            self.required_bones = [0]
+        if (EXPORT_AS_STATIC_MESH):
+            self.has_bone_refs = 0
+            self.required_bones = []
+        else:
+            self.has_bone_refs = 1
+            self.required_bones = []
+            
+            for global_id, local_id in sorted(batch_ref_table.items(), key=lambda x: x[1]):
+                self.required_bones.append(global_id)
+
+            if (self.is_dummy):
+                self.required_bones = [0]
 
 
         '''for group in obj.vertex_groups:
@@ -656,7 +668,7 @@ class WMBMesh():
         self.corner1 = (obj["data"][4], obj["data"][5], obj["data"][6])
         self.corner2 = (obj["data"][7], obj["data"][8], obj["data"][9])
 
-        for obj in arm_obj.children:
+        for obj in arm_obj.objects:
             if obj.type != 'MESH':
                 continue
             name_parts = obj.name.split("-")
@@ -711,7 +723,7 @@ class WMBDataGenerator:
 
         wmb_collection =  bpy.context.view_layer.layer_collection.children[colName]
         sub_collection = [x for x in wmb_collection.children if x.is_visible][0]
-        arm_obj = sub_collection.collection.objects[0]
+        arm_obj = sub_collection.collection # Maybe?
 
         material_remap = []
 
@@ -724,7 +736,7 @@ class WMBDataGenerator:
             self.ex_mat_B = arm_obj["exmatinfo"][1]
 
         i = 0
-        for obj in arm_obj.children:
+        for obj in arm_obj.objects:
             if obj.type != 'MESH':
                 continue
             for slot in obj.material_slots:
@@ -762,79 +774,79 @@ class WMBDataGenerator:
             for i, bone in enumerate(sorted(arm_obj.data.bones, key=lambda x: x["id"])):
                 bone_name_to_id_map[bone.name] = i # Come up with some ids for local bones, these can be entirely arbitrary'''
 
+        if (not EXPORT_AS_STATIC_MESH):
+            if (self.bayo_2):
+                bone_ready_list = []
+                bones = arm_obj.data.bones
+                highest_local_id = 0
+                highest_global_id = 0
 
-        if (self.bayo_2):
-            bone_ready_list = []
-            bones = arm_obj.data.bones
-            highest_local_id = 0
-            highest_global_id = 0
+                for bone in bones:
+                    if "local_id" in bone:
+                        bone_name_to_id_map[bone.name] = bone["local_id"]
+                        bone_ready_list.append(bone.name)
+                        if bone["local_id"] > highest_local_id:
+                            highest_local_id = bone["local_id"] + 1
+                    if "id" in bone:
+                        if bone["id"] > highest_global_id and bone["id"] < 1000:
+                            highest_global_id = bone["id"] + 1
 
-            for bone in bones:
-                if "local_id" in bone:
-                    bone_name_to_id_map[bone.name] = bone["local_id"]
-                    bone_ready_list.append(bone.name)
-                    if bone["local_id"] > highest_local_id:
-                        highest_local_id = bone["local_id"] + 1
-                if "id" in bone:
-                    if bone["id"] > highest_global_id and bone["id"] < 1000:
-                        highest_global_id = bone["id"] + 1
+                print(f"Greatest Local ID: {highest_local_id}")
+                print(f"Greatest Global ID: {highest_global_id}")
 
-            print(f"Greatest Local ID: {highest_local_id}")
-            print(f"Greatest Global ID: {highest_global_id}")
+                existing_global_ids = set()
+                seen_global_ids = set()
+                duplicate_bones = []
 
-            existing_global_ids = set()
-            seen_global_ids = set()
-            duplicate_bones = []
+                for bone in bones:
+                    if "id" in bone:
+                        if bone["id"] in seen_global_ids:
+                            duplicate_bones.append(bone)
+                        else:
+                            seen_global_ids.add(bone["id"])
+                            existing_global_ids.add(bone["id"])
 
-            for bone in bones:
-                if "id" in bone:
-                    if bone["id"] in seen_global_ids:
-                        duplicate_bones.append(bone)
-                    else:
-                        seen_global_ids.add(bone["id"])
-                        existing_global_ids.add(bone["id"])
-
-            for bone in duplicate_bones:
-                while highest_global_id in existing_global_ids:
-                    highest_global_id += 1
-                print(f"Duplicate global ID on '{bone.name}', reassigning to {highest_global_id}")
-                bone["id"] = highest_global_id
-                existing_global_ids.add(highest_global_id)
-                highest_global_id += 1
-
-            for bone in bones:
-                if "id" not in bone:
+                for bone in duplicate_bones:
                     while highest_global_id in existing_global_ids:
                         highest_global_id += 1
+                    print(f"Duplicate global ID on '{bone.name}', reassigning to {highest_global_id}")
                     bone["id"] = highest_global_id
                     existing_global_ids.add(highest_global_id)
                     highest_global_id += 1
 
-            if len(bone_ready_list) == 0:
-                for i, bone in enumerate(sorted(bones, key=lambda x: x["id"])):
-                    bone_name_to_id_map[bone.name] = i
-            else:
                 for bone in bones:
-                    if bone.name not in bone_ready_list:
-                        print(f"Assigning {bone.name} to Local ID {highest_local_id}")
-                        bone_name_to_id_map[bone.name] = highest_local_id
-                        highest_local_id += 1
-        else:
-            # make up some shi
-            current_highest_id = 0
-            for bone in arm_obj.data.bones:
-                if "id" in bone:
-                    if bone["id"] > current_highest_id:
-                        current_highest_id = bone["id"] + 1
+                    if "id" not in bone:
+                        while highest_global_id in existing_global_ids:
+                            highest_global_id += 1
+                        bone["id"] = highest_global_id
+                        existing_global_ids.add(highest_global_id)
+                        highest_global_id += 1
 
-            for bone in arm_obj.data.bones:
-                if "id" not in bone:
-                    bone["id"] = current_highest_id
-                    current_highest_id+=1 
+                if len(bone_ready_list) == 0:
+                    for i, bone in enumerate(sorted(bones, key=lambda x: x["id"])):
+                        bone_name_to_id_map[bone.name] = i
+                else:
+                    for bone in bones:
+                        if bone.name not in bone_ready_list:
+                            print(f"Assigning {bone.name} to Local ID {highest_local_id}")
+                            bone_name_to_id_map[bone.name] = highest_local_id
+                            highest_local_id += 1
+            else:
+                # make up some shi
+                current_highest_id = 0
+                for bone in arm_obj.data.bones:
+                    if "id" in bone:
+                        if bone["id"] > current_highest_id:
+                            current_highest_id = bone["id"] + 1
+
+                for bone in arm_obj.data.bones:
+                    if "id" not in bone:
+                        bone["id"] = current_highest_id
+                        current_highest_id+=1 
 
 
-            for i, bone in enumerate(sorted(arm_obj.data.bones, key=lambda x: x["id"])):
-                bone_name_to_id_map[bone.name] = i
+                for i, bone in enumerate(sorted(arm_obj.data.bones, key=lambda x: x["id"])):
+                    bone_name_to_id_map[bone.name] = i
 
         offset_ticker = 0
         self.header_offset = 0
@@ -843,7 +855,11 @@ class WMBDataGenerator:
             self.header_size = 192
 
         self.vtx_format = sub_collection.collection["vertex_format"]
-        self.bone_count = len(arm_obj.data.bones)
+
+        if (EXPORT_AS_STATIC_MESH):
+            self.bone_count = 0
+        else:
+            self.bone_count = len(arm_obj.data.bones)
 
         self.has_that_one_fucked_vertex_format = False
         if self.vtx_format == 0x4000001F:
@@ -856,7 +872,7 @@ class WMBDataGenerator:
 
         ## -- VERTEX CHUNK A --
         self.offset_vertexes = offset_ticker
-        self.vertex_data = WMBVertexChunk(arm_obj.children, bone_reference_dictionary, self.bayo_2)
+        self.vertex_data = WMBVertexChunk(arm_obj.objects, bone_reference_dictionary, self.bayo_2)
         offset_ticker += self.vertex_data.total_vertices * 32
         offset_ticker = align(offset_ticker, ALIGN_TARGET)
 
@@ -866,53 +882,62 @@ class WMBDataGenerator:
         offset_ticker = align(offset_ticker, ALIGN_TARGET)
 
         ## -- BONE CHUNK --
-        print("[>] Generating bone data...")
+        if (not EXPORT_AS_STATIC_MESH):
+            print("[>] Generating bone data...")
 
-        self.offset_bone_parents = offset_ticker
-        self.bone_parents = WMBBoneParents(arm_obj)
+            self.offset_bone_parents = offset_ticker
+            self.bone_parents = WMBBoneParents(arm_obj)
 
-        offset_ticker += self.bone_count * 2
-        offset_ticker = align(offset_ticker, ALIGN_TARGET)
-        
-        self.offset_bone_rel_positions = offset_ticker
-        offset_ticker += self.bone_count * 12
-        offset_ticker = align(offset_ticker, ALIGN_TARGET)
-        self.offset_bone_abs_positions = offset_ticker
-
-        self.bone_positions = WMBBonePosition(arm_obj)
-
-        offset_ticker += self.bone_count * 12
-        offset_ticker = align(offset_ticker, ALIGN_TARGET)
-
-        self.offset_bone_index_translate_table = offset_ticker
-
-        self.bone_index_translate_table = WMBBoneIndexTranslateTable(arm_obj)
-
-        offset_ticker += self.bone_index_translate_table.size
-        offset_ticker = align(offset_ticker, ALIGN_TARGET)
-
-        self.bone_inverse_kinetic_table = WMBInverseKinetic(arm_obj)
-        if (self.bone_inverse_kinetic_table.enabled):
-            self.offset_bone_inverse_kinetic_table = offset_ticker
-            offset_ticker += self.bone_inverse_kinetic_table.size
-            offset_ticker = align(offset_ticker, ALIGN_TARGET)
-        else:
-            self.offset_bone_inverse_kinetic_table = 0
-
-        self.bone_sym = WMBBoneSymmetries(arm_obj)
-        if (self.bone_sym.enabled):
-            self.offset_bone_sym = offset_ticker
             offset_ticker += self.bone_count * 2
             offset_ticker = align(offset_ticker, ALIGN_TARGET)
-        else:
-            self.offset_bone_sym = 0
-
-        self.bone_flags = WMBBoneFlags(arm_obj)
-        if (self.bone_flags.enabled):
-            self.offset_bone_flags = offset_ticker
-            offset_ticker += self.bone_count
+            
+            self.offset_bone_rel_positions = offset_ticker
+            offset_ticker += self.bone_count * 12
             offset_ticker = align(offset_ticker, ALIGN_TARGET)
+            self.offset_bone_abs_positions = offset_ticker
+
+            self.bone_positions = WMBBonePosition(arm_obj)
+
+            offset_ticker += self.bone_count * 12
+            offset_ticker = align(offset_ticker, ALIGN_TARGET)
+
+            self.offset_bone_index_translate_table = offset_ticker
+
+            self.bone_index_translate_table = WMBBoneIndexTranslateTable(arm_obj)
+
+            offset_ticker += self.bone_index_translate_table.size
+            offset_ticker = align(offset_ticker, ALIGN_TARGET)
+
+            self.bone_inverse_kinetic_table = WMBInverseKinetic(arm_obj)
+            if (self.bone_inverse_kinetic_table.enabled):
+                self.offset_bone_inverse_kinetic_table = offset_ticker
+                offset_ticker += self.bone_inverse_kinetic_table.size
+                offset_ticker = align(offset_ticker, ALIGN_TARGET)
+            else:
+                self.offset_bone_inverse_kinetic_table = 0
+
+            self.bone_sym = WMBBoneSymmetries(arm_obj)
+            if (self.bone_sym.enabled):
+                self.offset_bone_sym = offset_ticker
+                offset_ticker += self.bone_count * 2
+                offset_ticker = align(offset_ticker, ALIGN_TARGET)
+            else:
+                self.offset_bone_sym = 0
+
+            self.bone_flags = WMBBoneFlags(arm_obj)
+            if (self.bone_flags.enabled):
+                self.offset_bone_flags = offset_ticker
+                offset_ticker += self.bone_count
+                offset_ticker = align(offset_ticker, ALIGN_TARGET)
+            else:
+                self.offset_bone_flags = 0
         else:
+            self.offset_bone_parents = 0
+            self.offset_bone_rel_positions = 0
+            self.offset_bone_abs_positions = 0
+            self.offset_bone_index_translate_table = 0
+            self.offset_bone_inverse_kinetic_table = 0
+            self.offset_bone_sym = 0
             self.offset_bone_flags = 0
 
         if (self.bayo_2):
@@ -956,7 +981,7 @@ class WMBDataGenerator:
         mesh_offset_ticker = 0
 
         sorted_children = sorted(
-            (c for c in arm_obj.children if c.type == 'MESH'),
+            (c for c in arm_obj.objects if c.type == 'MESH'),
             key=lambda obj: int(obj.name.split("-")[0])
         )
 
@@ -1053,8 +1078,15 @@ def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
         ])
 
         f.write(tangent_bytes)
-        f.write(struct.pack("<BBBB", *data[3])) # Bone Indexes
-        f.write(struct.pack("<BBBB", *data[4])) # Bone Weights
+
+        if (EXPORT_AS_STATIC_MESH):
+            f.write(struct.pack("<I", 0))
+            if (generated_data.vertex_data.num_mapping == 2):
+                uv_bytes = float_to_half_bytes(data[1][0]) + float_to_half_bytes(1 - data[1][1])
+                f.write(uv_bytes)
+        else:
+            f.write(struct.pack("<BBBB", *data[3])) # Bone Indexes
+            f.write(struct.pack("<BBBB", *data[4])) # Bone Weights
 
 
     f.seek(generated_data.offset_ex_vertexes)
@@ -1222,13 +1254,16 @@ def WMB0_Write_Mesh_Data(f, generated_data : WMBDataGenerator):
             batch_tick+=1
 
 
-def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=False, copy_uv=True, bayonetta_2=False):
+def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=False, copy_uv=True, bayonetta_2=False, static_mesh=True):
     global GENERATE_TRANSLATE_TABLE
     global USE_LARGE_BONES
     global OP_INSTANCE
     global EXCEPT_AFTER_GENERATION
     global COPY_UV_1_AS_2
+    global EXPORT_AS_STATIC_MESH
 
+    
+    EXPORT_AS_STATIC_MESH = static_mesh
     USE_LARGE_BONES = large_bones
     GENERATE_TRANSLATE_TABLE = btt
     OP_INSTANCE = op_inst
@@ -1238,27 +1273,31 @@ def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=Fa
     f = open(filepath, "wb")
     print("[>] Preparing data...")
 
-    generated_data = WMBDataGenerator() # Loosely based off of MGR2Blender
+    generated_data = WMBDataGenerator(colName="SCR") # Loosely based off of MGR2Blender
 
 
     f.seek(generated_data.header_offset)
     WMB0_Write_HDR(f, generated_data)
     f.seek(generated_data.offset_vertexes)
     WMB0_Write_VertexData(f, generated_data)
-    f.seek(generated_data.offset_bone_parents)
-    WMB0_Write_BoneParents(f, generated_data)
-    f.seek(generated_data.offset_bone_rel_positions)
-    WMB0_Write_Positions_Rel(f, generated_data)
-    f.seek(generated_data.offset_bone_abs_positions)
-    WMB0_Write_Positions_Abs(f, generated_data)
-    f.seek(generated_data.offset_bone_index_translate_table)
-    WMB0_Write_BoneIndexTranslateTable(f, generated_data)
-    f.seek(generated_data.offset_bone_inverse_kinetic_table)
-    WMB0_Write_IK(f, generated_data)
-    f.seek(generated_data.offset_bone_sym)
-    WMB0_Write_Sym(f, generated_data)
-    f.seek(generated_data.offset_bone_flags)
-    WMB0_Write_Flags(f, generated_data) # I should have called this bone flags but oh well
+    # -- RIGGED ONLY --
+    if (not static_mesh):
+        f.seek(generated_data.offset_bone_parents)
+        WMB0_Write_BoneParents(f, generated_data)
+        f.seek(generated_data.offset_bone_rel_positions)
+        WMB0_Write_Positions_Rel(f, generated_data)
+        f.seek(generated_data.offset_bone_abs_positions)
+        WMB0_Write_Positions_Abs(f, generated_data)
+        f.seek(generated_data.offset_bone_index_translate_table)
+        WMB0_Write_BoneIndexTranslateTable(f, generated_data)
+        f.seek(generated_data.offset_bone_inverse_kinetic_table)
+        WMB0_Write_IK(f, generated_data)
+        f.seek(generated_data.offset_bone_sym)
+        WMB0_Write_Sym(f, generated_data)
+        f.seek(generated_data.offset_bone_flags)
+        WMB0_Write_Flags(f, generated_data) # I should have called this bone flags but oh well
+    
+
     if (generated_data.bayo_2):
         f.seek(generated_data.exmat_offset)
         WMB0_Write_B2_ExMaterialInfo(f, generated_data)
