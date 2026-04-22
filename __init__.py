@@ -19,7 +19,7 @@ from .ui.mesh_ui import BayoObjectPanel
 from .utils.util import BayonettaVector4Property
 from .wmb.wmb_materials import BayonettaParameter, BayonettaTexture, Bayonetta2Data, BayonettaExMaterialData
 from .wmb.wmb_materials import BayoMaterialDataProperty
-from .scr.scrOperators import ImportBayoSCR, ImportVanqLYT
+from .scr.scrOperators import ImportBayoSCR, ImportVanqLYT, ExportBayoSCR
 from .utils.utilOperators import RipMeshByUVIslands, RemoveUnusedVertexGroups
 
 class BayonettaObjectMenu(bpy.types.Menu):
@@ -54,6 +54,7 @@ class EXPORT_BN_MainMenu(bpy.types.Menu):
         pcoll = preview_collections["main"]
         raiden_icon = pcoll["bayo"] 
         self.layout.operator(ExportBayoWMB.bl_idname, text="Model File (.wmb)", icon_value=raiden_icon.icon_id)
+        self.layout.operator(ExportBayoSCR.bl_idname, text="Stage File (.scr)", icon_value=raiden_icon.icon_id)
 
 class B2BConfiguration(bpy.types.AddonPreferences):
     bl_idname = __package__
@@ -96,7 +97,8 @@ classes = (
     EXPORT_BN_MainMenu,
     BayoObjectPanel,
     ImportBayoSCR,
-    B2BConfiguration
+    B2BConfiguration,
+    ExportBayoSCR
 
 )
 

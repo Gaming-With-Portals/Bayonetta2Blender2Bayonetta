@@ -7,6 +7,7 @@ from mathutils import Vector, Matrix
 import numpy as np
 from .wmb_materials import materialSizeDictionary
 from .wmb_custom_bones import encode_parts_index_no_table as GenerateTranslateTable
+import re
 
 GENERATE_TRANSLATE_TABLE = True
 USE_LARGE_BONES = False
@@ -54,6 +55,15 @@ def pack_b2_normal(fx, fy, fz):
 
     return v
 
+def getObjectChildren(parent):
+    if (EXPORT_AS_STATIC_MESH):
+        return parent.objects
+    else:
+        return parent.children
+
+def decimalFixup(name):
+    return re.sub(r'\.\d+$', '', name)
+
 class WMBVertexChunk:
 
 
@@ -93,6 +103,7 @@ class WMBVertexChunk:
             sorted_loops = sorted(eval_mesh.loops, key=lambda loop: loop.vertex_index)
 
             color_layer = eval_mesh.vertex_colors.get("ExCol", None)
+            main_color_layer = eval_mesh.vertex_colors.get("Col", None)
             
             uv_layer = eval_mesh.uv_layers.active
             if (uv_layer is None):
@@ -103,6 +114,7 @@ class WMBVertexChunk:
             loop_map_2 = {}
             tangent_map = {}
             color_map = {}
+            main_color_map = {}
 
             for loop in eval_mesh.loops:
                 vidx = loop.vertex_index
@@ -114,6 +126,9 @@ class WMBVertexChunk:
 
                 if vidx not in color_map and color_layer is not None:
                     color_map[vidx] = color_layer.data[loop.index].color[:]
+
+                if vidx not in main_color_map and main_color_layer is not None:
+                    main_color_map[vidx] = main_color_layer.data[loop.index].color[:]
 
                 if vidx not in tangent_map:
                     tangent = loop.tangent
@@ -218,6 +233,12 @@ class WMBVertexChunk:
                     int_weights = [max(0, min(255, w)) for w in int_weights]
 
 
+                def blenderColorToBayo(color):
+                    r = int(color[0]*255)
+                    g = int(color[1]*255)
+                    b = int(color[2]*255)
+                    a = int(color[3]*255)
+                    return (r, g, b, a)
 
                 vertex_info = []
                 ex_vertex_info = []
@@ -236,13 +257,8 @@ class WMBVertexChunk:
 
                 vertex_info.append(uv.copy())
                 vertex_info.append((uv[0], uv[1]))
-
-                def blenderColorToBayo(color):
-                    r = int(color[0]*255)
-                    g = int(color[1]*255)
-                    b = int(color[2]*255)
-                    a = int(color[3]*255)
-                    return (r, g, b, a)
+                if (main_color_layer):
+                    vertex_info.append(blenderColorToBayo(main_color_layer.get(vertex.index, (0, 0, 0, 0))))
 
                 ex_vertex_info.append(blenderColorToBayo(color_map.get(vertex.index, (0, 0, 0, 0))))
                 if (self.num_mapping == 2):
@@ -524,12 +540,12 @@ class WMBMeshBlob():
         self.meshes = []
 
         
-        for obj in arm_obj.objects:
+        for obj in getObjectChildren(arm_obj):
             if obj.type != 'MESH':
                 continue
             name_parts = obj.name.split("-")
             if (len(name_parts) == 3):
-                if (int(name_parts[2]) == 0):
+                if (int(decimalFixup(name_parts[2])) == 0):
                     self.mesh_count+=1
 
 class WMBBatch():
@@ -668,12 +684,12 @@ class WMBMesh():
         self.corner1 = (obj["data"][4], obj["data"][5], obj["data"][6])
         self.corner2 = (obj["data"][7], obj["data"][8], obj["data"][9])
 
-        for obj in arm_obj.objects:
+        for obj in getObjectChildren(arm_obj):
             if obj.type != 'MESH':
                 continue
             name_parts = obj.name.split("-")
             if (int(name_parts[0]) == self.mesh_id):
-                bpy_batches.append((int(name_parts[2]), obj))
+                bpy_batches.append((int(decimalFixup(name_parts[2])), obj))
 
         bpy_batches.sort(key=lambda x: x[0])
         bpy_batches = [obj for _, obj in bpy_batches]
@@ -718,12 +734,20 @@ class WMBExMaterialInfo():
         
 
 class WMBDataGenerator:
-    def __init__(self, colName="WMB"):
+    def __init__(self, colName="WMB", targetCollection=None):
         ALIGN_TARGET = 64
 
-        wmb_collection =  bpy.context.view_layer.layer_collection.children[colName]
-        sub_collection = [x for x in wmb_collection.children if x.is_visible][0]
-        arm_obj = sub_collection.collection # Maybe?
+
+        if (targetCollection == None):
+            wmb_collection =  bpy.context.view_layer.layer_collection.children[colName]
+            sub_collection = [x for x in wmb_collection.children if x.is_visible][0]
+            arm_obj = sub_collection.collection.objects[0]
+        else:
+            arm_obj = targetCollection.collection
+            sub_collection = targetCollection
+
+
+        #arm_obj = sub_collection.collection # Maybe?
 
         material_remap = []
 
@@ -736,7 +760,7 @@ class WMBDataGenerator:
             self.ex_mat_B = arm_obj["exmatinfo"][1]
 
         i = 0
-        for obj in arm_obj.objects:
+        for obj in getObjectChildren(arm_obj):
             if obj.type != 'MESH':
                 continue
             for slot in obj.material_slots:
@@ -872,7 +896,7 @@ class WMBDataGenerator:
 
         ## -- VERTEX CHUNK A --
         self.offset_vertexes = offset_ticker
-        self.vertex_data = WMBVertexChunk(arm_obj.objects, bone_reference_dictionary, self.bayo_2)
+        self.vertex_data = WMBVertexChunk(getObjectChildren(arm_obj), bone_reference_dictionary, self.bayo_2)
         offset_ticker += self.vertex_data.total_vertices * 32
         offset_ticker = align(offset_ticker, ALIGN_TARGET)
 
@@ -981,14 +1005,14 @@ class WMBDataGenerator:
         mesh_offset_ticker = 0
 
         sorted_children = sorted(
-            (c for c in arm_obj.objects if c.type == 'MESH'),
+            (c for c in getObjectChildren(arm_obj) if c.type == 'MESH'),
             key=lambda obj: int(obj.name.split("-")[0])
         )
 
         for obj in sorted_children:
             name_parts = obj.name.split("-")
             if len(name_parts) == 3:
-                if int(name_parts[2]) == 0:
+                if int(decimalFixup(name_parts[2])) == 0:
                     mesh_offset_ticker = align(mesh_offset_ticker, 32)
                     mesh_dat = WMBMesh(arm_obj, obj, bone_reference_dictionary, self.bayo_2)
                     self.mesh_blob.offsets.append(mesh_offset_ticker)
@@ -1081,6 +1105,7 @@ def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
 
         if (EXPORT_AS_STATIC_MESH):
             f.write(struct.pack("<I", 0))
+            #f.write(struct.pack("<BBBB", *data[7]))
             if (generated_data.vertex_data.num_mapping == 2):
                 uv_bytes = float_to_half_bytes(data[1][0]) + float_to_half_bytes(1 - data[1][1])
                 f.write(uv_bytes)
@@ -1254,7 +1279,7 @@ def WMB0_Write_Mesh_Data(f, generated_data : WMBDataGenerator):
             batch_tick+=1
 
 
-def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=False, copy_uv=True, bayonetta_2=False, static_mesh=True):
+def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=False, copy_uv=True, bayonetta_2=False, static_mesh=False, targetCol=None):
     global GENERATE_TRANSLATE_TABLE
     global USE_LARGE_BONES
     global OP_INSTANCE
@@ -1273,7 +1298,7 @@ def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=Fa
     f = open(filepath, "wb")
     print("[>] Preparing data...")
 
-    generated_data = WMBDataGenerator(colName="SCR") # Loosely based off of MGR2Blender
+    generated_data = WMBDataGenerator(targetCollection=targetCol) # Loosely based off of MGR2Blender
 
 
     f.seek(generated_data.header_offset)
