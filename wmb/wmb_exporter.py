@@ -230,6 +230,8 @@ class WMBVertexChunk:
 
                 if (ex_color_layer is not None):
                     ex_vertex_info.append(blenderColorToBayo((ex_color_layer.data[loop.index].color)))
+                else:
+                    ex_vertex_info.append((0, 0, 0, 0))
 
                 if (self.num_mapping == 2):
                     if (COPY_UV_1_AS_2):
