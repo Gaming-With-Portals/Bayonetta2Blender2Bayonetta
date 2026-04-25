@@ -21,12 +21,13 @@ from .wmb.wmb_materials import BayonettaParameter, BayonettaTexture, Bayonetta2D
 from .wmb.wmb_materials import BayoMaterialDataProperty
 from .wmb.wmb_mesh_properties import BayoBatchDataProperty
 from .scr.scrOperators import ImportBayoSCR, ImportVanqLYT, ExportBayoSCR
-from .utils.utilOperators import RipMeshByUVIslands, RemoveUnusedVertexGroups
+from .utils.utilOperators import RipMeshByUVIslands, RemoveUnusedVertexGroups, RecalculateObjectIndices
 
 class BayonettaObjectMenu(bpy.types.Menu):
     bl_idname = 'OBJECT_MT_b2b2b'
     bl_label = 'Bayonetta Tools'
     def draw(self, context):
+        self.layout.operator(RecalculateObjectIndices.bl_idname, icon="LINENUMBERS_ON")
         self.layout.operator(RemoveUnusedVertexGroups.bl_idname, icon="GROUP_VERTEX")
         self.layout.operator(RipMeshByUVIslands.bl_idname, icon="UV_ISLANDSEL")
 
@@ -100,7 +101,8 @@ classes = (
     ImportBayoSCR,
     B2BConfiguration,
     ExportBayoSCR,
-    BayoBatchDataProperty
+    BayoBatchDataProperty,
+    RecalculateObjectIndices
 )
 
 

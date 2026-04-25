@@ -104,9 +104,8 @@ class WMBVertexChunk:
             
             print(f"[>] Generating vertex data for {obj.name}")
 
-            if len(obj.data.uv_layers) == 0:
-                obj.data.uv_layers.new()
-            obj.data.calc_tangents()
+            if len(obj.data.uv_layers) != 0:
+                obj.data.calc_tangents()
 
             def get_blenderLoops(self, objOwner):
                 blenderLoops = []
