@@ -64,6 +64,22 @@ def getObjectChildren(parent):
 def decimalFixup(name):
     return re.sub(r'\.\d+$', '', name)
 
+def get_blenderUVCoordsEx(self, objOwner, loopIndex, uvName): # From MGR2Blender, but I wrote it, so is it really?
+    uv_layers = objOwner.data.uv_layers
+
+    if uvName not in uv_layers:
+        return None
+
+    uv_coords = uv_layers[uvName].data[loopIndex].uv
+    return (uv_coords.x, 1 - uv_coords.y)
+
+def blenderColorToBayo(color):
+    r = int(color[0]*255)
+    g = int(color[1]*255)
+    b = int(color[2]*255)
+    a = int(color[3]*255)
+    return (r, g, b, a)
+
 class WMBVertexChunk:
 
 
@@ -88,7 +104,157 @@ class WMBVertexChunk:
             
             print(f"[>] Generating vertex data for {obj.name}")
 
+            if len(obj.data.uv_layers) == 0:
+                obj.data.uv_layers.new()
+            obj.data.calc_tangents()
+
+            def get_blenderLoops(self, objOwner):
+                blenderLoops = []
+                blenderLoops += objOwner.data.loops
+
+                return blenderLoops
+
             ref_table[obj.name] = {}
+            bone_counter = 0
+
+            loops = get_blenderLoops(self, obj)
+            sorted_loops = sorted(loops, key=lambda loop: loop.vertex_index)
+
+            ex_color_layer = obj.data.vertex_colors.get("ExCol", None)
+            main_color_layer = obj.data.vertex_colors.get("Col", None)
+
+            obj["vertex_start"] = vertex_ticker
+
+            previousIndex = -1
+            for loop in sorted_loops:
+                vertex_info = []
+                ex_vertex_info = []
+                if (loop.vertex_index == previousIndex):
+                    continue
+
+                vertex_ticker+=1
+
+                previousIndex = loop.vertex_index
+
+                bvtx = obj.data.vertices[loop.vertex_index]
+
+                MAX_WEIGHTS = 4
+                bone_weights = []
+                bone_indices = []
+                for g in bvtx.groups:
+                    group_index = g.group
+                    weight = g.weight
+                    group_name = obj.vertex_groups[group_index].name
+                    bone_id = 0
+
+                    if (getBoneID(group_name) in ref_table[obj.name]):
+                        bone_id = ref_table[obj.name][getBoneID(group_name)]
+                    else:
+                        bone_id = bone_counter
+                        ref_table[obj.name][getBoneID(group_name)] = bone_counter
+                        bone_counter+=1
+
+                    
+                    bone_weights.append(weight)
+                    bone_indices.append(bone_id)
+
+                if (not EXPORT_AS_STATIC_MESH):
+                    pairs = list(zip(bone_weights, bone_indices))
+                    pairs = sorted(pairs, key=lambda p: p[0], reverse=True)[:MAX_WEIGHTS]
+
+                    float_weights = [p[0] for p in pairs]
+                    sel_indices = [p[1] for p in pairs]
+
+                    total = sum(float_weights)
+                    if total > 0:
+                        float_weights = [w / total for w in float_weights]
+                    else:
+                        float_weights = [0.0] * len(float_weights)
+
+                    while len(float_weights) < MAX_WEIGHTS:
+                        float_weights.append(0.0)
+                        sel_indices.append(0)
+
+                    int_weights = [int(w * 255.0) for w in float_weights]
+
+                    rem = 255 - sum(int_weights)
+                    if rem != 0:
+                        order = sorted(range(MAX_WEIGHTS), key=lambda i: float_weights[i], reverse=True)
+                        i = 0
+                        while rem != 0:
+                            idx = order[i]
+                            if rem > 0 and int_weights[idx] < 255:
+                                int_weights[idx] += 1
+                                rem -= 1
+                            elif rem < 0 and int_weights[idx] > 0:
+                                int_weights[idx] -= 1
+                                rem += 1
+                            i = (i + 1) % MAX_WEIGHTS
+
+                    int_weights = [max(0, min(255, w)) for w in int_weights]
+
+
+                position = (bvtx.co.x, bvtx.co.y, bvtx.co.z)
+                vertex_info.append(position) # Write position to buffer
+
+                normal = (loop.normal[0], loop.normal[2], -loop.normal[1])
+
+                
+                vertex_info.append(normal) # Write normal to buffer
+                
+
+
+                loopTangent = loop.tangent * 127
+                tx = int(loopTangent[0] + 127.0)
+                ty = int(loopTangent[1] + 127.0)
+                tz = int(loopTangent[2] + 127.0)
+                sign = 0xff if loop.bitangent_sign == -1 else 0
+                vertex_info.append((tx, ty, tz, sign))
+
+                if (not EXPORT_AS_STATIC_MESH): # This is so bad LMAO
+                    vertex_info.append(tuple(sel_indices))
+                    vertex_info.append(tuple(int_weights))
+                else:
+                    vertex_info.append((0, 0, 0, 0))
+                    vertex_info.append((0, 0, 0, 0))
+
+                mainUV = get_blenderUVCoordsEx(self, obj, loop.index, "UVMap1")
+                vertex_info.append(mainUV)
+                vertex_info.append([]) # Unused
+                if (main_color_layer is not None):
+                    vertex_info.append(blenderColorToBayo((main_color_layer.data[loop.index].color)))
+
+
+                exMap = get_blenderUVCoordsEx(self, obj, loop.index, "UVMap2")
+
+
+                if (ex_color_layer is not None):
+                    ex_vertex_info.append(blenderColorToBayo((ex_color_layer.data[loop.index].color)))
+
+                if (self.num_mapping == 2):
+                    if (COPY_UV_1_AS_2):
+                        ex_vertex_info.append(mainUV)
+                    else:
+                        if (exMap is not None):
+                            ex_vertex_info.append(exMap)
+                    
+                    
+
+                    
+
+
+                self.vertex_infos.append(vertex_info)
+                self.exvertex_infos.append(ex_vertex_info)
+
+                if (obj["dummy"]):
+                    break # Quit after the first iteration
+
+            obj["vertex_end"] = vertex_ticker
+        self.total_vertices = vertex_ticker
+
+
+
+        '''ref_table[obj.name] = {}
             bone_counter = 0
 
             depsgraph = bpy.context.evaluated_depsgraph_get()
@@ -135,38 +301,12 @@ class WMBVertexChunk:
                     normal = loop.normal
 
 
-                    sign = 128 * (loop.bitangent < 0)
+                    sign = 0xff if loop.bitangent_sign == -1 else 0
                     tangent_map[vidx] = (tangent.x, tangent.y, tangent.z, sign)
 
 
 
             obj["vertex_start"] = vertex_ticker
-            '''if (obj["dummy"]):
-                for i in range(3):
-                    vertex_info = []
-                    ex_vertex_info = []
-                    vertex_info.append((0, 0, 0))
-                    vertex_info.append((0, 0, 0))
-
-
-
-                    vertex_info.append((0, 0, 0, 0))
-                    vertex_info.append((0, 0, 0, 0))
-                    vertex_info.append((0, 0, 0, 0))
-                    vertex_info.append((0, 0))
-                    vertex_info.append((0, 0))
-
-
-                    ex_vertex_info.append((0, 0, 0, 0))
-                    if (self.num_mapping == 2):
-                        ex_vertex_info.append((0, 0, 0, 0))
-
-                    self.vertex_infos.append(vertex_info)
-                    self.exvertex_infos.append(ex_vertex_info)
-                    vertex_ticker+=1
-                obj["vertex_end"] = vertex_ticker
-                self.total_vertices += 1
-                continue'''
 
             self.total_vertices += len(eval_mesh.vertices)
 
@@ -273,7 +413,7 @@ class WMBVertexChunk:
                 if (obj["dummy"]):
                     break # Quit after the first iteration
 
-            obj["vertex_end"] = vertex_ticker
+            obj["vertex_end"] = vertex_ticker'''
 
 def getBoneID(boneName):
     return bone_name_to_id_map[boneName] # later is now, and this is important!
@@ -1068,14 +1208,10 @@ def WMB0_Write_HDR(f, generated_data : WMBDataGenerator):
         f.write(struct.pack("<I", generated_data.ex_mat_A))
         f.write(struct.pack("<I", generated_data.ex_mat_B))
 
-def pack_tangent(v):
-    return max(0, min(255, int((v * 0.5 + 0.5) * 255)))
-
 def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
     for data in generated_data.vertex_data.vertex_infos:
-        uv_bytes = float_to_half_bytes(data[5][0]) + float_to_half_bytes(1 - data[5][1])
         f.write(struct.pack("<fff", *data[0]))
-        f.write(uv_bytes)
+        f.write(struct.pack("<ee", *data[5] ))
 
         if (generated_data.bayo_2):
             fx, fy, fz = data[1][0], data[1][1], data[1][2]
@@ -1095,10 +1231,10 @@ def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
 
         tx, ty, tz, d = data[2]
         tangent_bytes = bytes([
-            pack_tangent(tx),
-            pack_tangent(ty),
-            pack_tangent(tz),
-            pack_tangent(d)
+            tx,
+            ty,
+            tz,
+            d
         ])
 
         f.write(tangent_bytes)
@@ -1118,8 +1254,7 @@ def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
     for data in generated_data.vertex_data.exvertex_infos:
         f.write(struct.pack("<BBBB", *data[0]))
         if (generated_data.vertex_data.num_mapping == 2):
-            uv_bytes = float_to_half_bytes(data[1][0]) + float_to_half_bytes(1 - data[1][1])
-            f.write(uv_bytes)
+            f.write(struct.pack("<ee", *data[1] ))
 
 def WMB0_Write_BoneParents(f, generated_data : WMBDataGenerator):
     bone_map = generated_data.bone_parents.bone_map

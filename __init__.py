@@ -19,6 +19,7 @@ from .ui.mesh_ui import BayoObjectPanel
 from .utils.util import BayonettaVector4Property
 from .wmb.wmb_materials import BayonettaParameter, BayonettaTexture, Bayonetta2Data, BayonettaExMaterialData
 from .wmb.wmb_materials import BayoMaterialDataProperty
+from .wmb.wmb_mesh_properties import BayoBatchDataProperty
 from .scr.scrOperators import ImportBayoSCR, ImportVanqLYT, ExportBayoSCR
 from .utils.utilOperators import RipMeshByUVIslands, RemoveUnusedVertexGroups
 
@@ -98,8 +99,8 @@ classes = (
     BayoObjectPanel,
     ImportBayoSCR,
     B2BConfiguration,
-    ExportBayoSCR
-
+    ExportBayoSCR,
+    BayoBatchDataProperty
 )
 
 
@@ -144,6 +145,7 @@ def register():
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
     bpy.types.VIEW3D_MT_object.append(menu_func_utils)
     bpy.types.Material.bayo_data = bpy.props.PointerProperty(type=BayoMaterialDataProperty)
+    bpy.types.Object.bayo_data = bpy.props.PointerProperty(type=BayoBatchDataProperty)
 
 
     addon_dir = os.path.dirname(os.path.abspath(__file__))
