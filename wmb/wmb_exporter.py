@@ -613,18 +613,6 @@ class Bayonetta2Material():
 
 class WMBMaterialBlob:
     def __init__(self, arm_obj, material_map, bayonetta_2):
-        # Moved to the start of GenerateData, with a bit more advanced processing
-        '''unique_mats = set()
-        self.materials = []
-
-        for obj in arm_obj.children:
-            if obj.type != 'MESH':
-                continue
-            for slot in obj.material_slots:
-                if slot.material:
-                    unique_mats.add(slot.material)
-
-        sorted_mats = sorted(unique_mats, key=lambda m: int(m.name.rsplit("_", 1)[-1]))'''
 
         self.materials = []
 
@@ -690,7 +678,7 @@ class WMBMeshBlob():
                     self.mesh_count+=1
 
 class WMBBatch():
-    def __init__(self, parent, obj, bone_ref_table, b2):
+    def __init__(self, parent, obj, bone_ref_table, material_remap, b2):
         if ("dummy" in obj):
             self.is_dummy = obj["dummy"]
         else:
@@ -711,10 +699,16 @@ class WMBBatch():
         self.flags = obj.get("batch_flags", 32769)
         self.exmaterial_id = 0
         self.material_id = 0
+        try:
+            material_index = material_remap.index(obj.material_slots[0].material)
+        except:
+            print(f"[!] Error, {obj.name}'s material somehow wasn't remapped??")
+            material_index = 0
+
         if (b2):
-            self.exmaterial_id = int(obj["material_id"])
+            self.exmaterial_id = int(material_index)
         else:
-            self.material_id = int(obj["material_id"])
+            self.material_id = int(material_index)
 
         self.has_bone_refs = 0
         self.vertex_start = obj["vertex_start"]
@@ -805,7 +799,7 @@ class WMBBatch():
 
 
 class WMBMesh():
-    def __init__(self, arm_obj, obj, bone_ref_table, b2):
+    def __init__(self, arm_obj, obj, bone_ref_table, material_remap, b2):
         if ("data" not in obj):
             obj["data"] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         if ("flags" not in obj):
@@ -849,7 +843,7 @@ class WMBMesh():
         self.batch_offsets = []
         for batch_obj in bpy_batches:
             offset = align(offset, 32)
-            tmp_batch = WMBBatch(self, batch_obj, bone_ref_table, b2)
+            tmp_batch = WMBBatch(self, batch_obj, bone_ref_table, material_remap, b2)
             self.batches.append(tmp_batch)
             self.batch_offsets.append(offset)
             offset+=tmp_batch.fetch_size()
@@ -891,6 +885,7 @@ class WMBDataGenerator:
         #arm_obj = sub_collection.collection # Maybe?
 
         material_remap = []
+        mesh_name_to_material_index = {}
 
         if ("b2" not in arm_obj):
             arm_obj["b2"] = False # Assume not b2
@@ -901,20 +896,34 @@ class WMBDataGenerator:
             self.ex_mat_B = arm_obj["exmatinfo"][1]
 
         i = 0
+        '''sorted_objects = sorted(
+            (obj for obj in getObjectChildren(arm_obj) if obj.type == 'MESH'),
+            key=lambda obj: (int(obj.name.split("-")[0]), int(decimalFixup(obj.name.split("-")[2])))
+        )'''
+
         for obj in getObjectChildren(arm_obj):
-            if obj.type != 'MESH':
-                continue
-            for slot in obj.material_slots:
-                if slot.material:
-                    if slot.material not in material_remap:
-                        material_remap.append(slot.material)
-                        i += 1
-                    obj["material_id"] = material_remap.index(slot.material)
-                    break
+            if obj.type == 'MESH':
+                for slot in obj.material_slots:
+                    if slot.material:
+                        if slot.material not in material_remap:
+                            material_remap.append(slot.material)
+                            i += 1
+                        obj["material_id"] = material_remap.index(slot.material)
+
+                        break
+
+        def material_sort_key(mat):
+            match = re.search(r'_(\d+)$', mat.name)
+            if match:
+                return (0, int(match.group(1)))
+            return (1, 0)
+
+        material_remap.sort(key=material_sort_key)
 
         print("Automatically remapping materials...")
         for i, material in enumerate(material_remap):
-            print(f"[>] ID: {i:02} NAME: {material.name}")
+            print(f"[>] ID: {i:02} NAME: {material.name} / {material.bayo_data.shader}")
+
 
 
         '''# make up some shi
@@ -1155,7 +1164,7 @@ class WMBDataGenerator:
             if len(name_parts) == 3:
                 if int(decimalFixup(name_parts[2])) == 0:
                     mesh_offset_ticker = align(mesh_offset_ticker, 32)
-                    mesh_dat = WMBMesh(arm_obj, obj, bone_reference_dictionary, self.bayo_2)
+                    mesh_dat = WMBMesh(arm_obj, obj, bone_reference_dictionary, material_remap, self.bayo_2)
                     self.mesh_blob.offsets.append(mesh_offset_ticker)
                     self.mesh_offsets.append(mesh_offset_ticker)
                     self.meshes.append(mesh_dat)
