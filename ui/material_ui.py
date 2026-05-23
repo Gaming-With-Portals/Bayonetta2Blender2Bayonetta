@@ -154,12 +154,12 @@ class BayoMaterialPanelAdvanced(bpy.types.Panel):
             layout.label(text="Texture Data:")
             for dat in mat.bayo_data.b2_data:
                 box = layout.box()
-                box.prop(dat, "data", text="Data")
+                box.prop(dat, "data", text=f"Data [{dat.position}]")
             layout.label(text="Additional Info:")
             box = layout.box()
             for i, dat in enumerate(mat.bayo_data.ex_material_data):
                 
-                box.prop(dat, "data", text=f"Prop {i}")
+                box.prop(dat, "data", text=f"Prop {i}:")
 
         else:
             box = layout.box()
@@ -216,7 +216,7 @@ class BayoMaterialPanel(bpy.types.Panel):
             layout.prop(mat.bayo_data, "shader")
             for tex in mat.bayo_data.textures:
                 box = layout.box()
-                box.prop(tex, "data", text="ID")
+                box.prop(tex, "data", text=f"ID [{tex.position}]")
                 box.prop(tex, "flag", text="Type")
         
         layout.operator(BayoMaterialToJSON.bl_idname, text="Copy Material")
