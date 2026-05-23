@@ -19,13 +19,15 @@ from .ui.mesh_ui import BayoObjectPanel
 from .utils.util import BayonettaVector4Property
 from .wmb.wmb_materials import BayonettaParameter, BayonettaTexture, Bayonetta2Data, BayonettaExMaterialData
 from .wmb.wmb_materials import BayoMaterialDataProperty
-from .scr.scrOperators import ImportBayoSCR, ImportVanqLYT
-from .utils.utilOperators import RipMeshByUVIslands, RemoveUnusedVertexGroups
+from .wmb.wmb_mesh_properties import BayoBatchDataProperty
+from .scr.scrOperators import ImportBayoSCR, ImportVanqLYT, ExportBayoSCR
+from .utils.utilOperators import RipMeshByUVIslands, RemoveUnusedVertexGroups, RecalculateObjectIndices
 
 class BayonettaObjectMenu(bpy.types.Menu):
     bl_idname = 'OBJECT_MT_b2b2b'
     bl_label = 'Bayonetta Tools'
     def draw(self, context):
+        self.layout.operator(RecalculateObjectIndices.bl_idname, icon="LINENUMBERS_ON")
         self.layout.operator(RemoveUnusedVertexGroups.bl_idname, icon="GROUP_VERTEX")
         self.layout.operator(RipMeshByUVIslands.bl_idname, icon="UV_ISLANDSEL")
 
@@ -54,6 +56,7 @@ class EXPORT_BN_MainMenu(bpy.types.Menu):
         pcoll = preview_collections["main"]
         raiden_icon = pcoll["bayo"] 
         self.layout.operator(ExportBayoWMB.bl_idname, text="Model File (.wmb)", icon_value=raiden_icon.icon_id)
+        self.layout.operator(ExportBayoSCR.bl_idname, text="Stage File (.scr)", icon_value=raiden_icon.icon_id)
 
 class B2BConfiguration(bpy.types.AddonPreferences):
     bl_idname = __package__
@@ -96,8 +99,10 @@ classes = (
     EXPORT_BN_MainMenu,
     BayoObjectPanel,
     ImportBayoSCR,
-    B2BConfiguration
-
+    B2BConfiguration,
+    ExportBayoSCR,
+    BayoBatchDataProperty,
+    RecalculateObjectIndices
 )
 
 
@@ -142,6 +147,7 @@ def register():
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
     bpy.types.VIEW3D_MT_object.append(menu_func_utils)
     bpy.types.Material.bayo_data = bpy.props.PointerProperty(type=BayoMaterialDataProperty)
+    bpy.types.Object.bayo_data = bpy.props.PointerProperty(type=BayoBatchDataProperty)
 
 
     addon_dir = os.path.dirname(os.path.abspath(__file__))

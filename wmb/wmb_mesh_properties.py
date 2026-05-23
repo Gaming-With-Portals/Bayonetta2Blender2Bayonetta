@@ -1,6 +1,6 @@
 import bpy
 
-class BayoMeshDataProperty(bpy.types.PropertyGroup):
+class BayoBatchDataProperty(bpy.types.PropertyGroup):
     bayonetta_2 : bpy.props.BoolProperty(
         name="Bayonetta 2?",
         description="Is it a Bayonetta 2 mesh",
@@ -9,6 +9,6 @@ class BayoMeshDataProperty(bpy.types.PropertyGroup):
     
     flags: bpy.props.IntProperty(
         name="Flags",
-        description="Material Flags",
+        description="Flags",
         default=0
     )

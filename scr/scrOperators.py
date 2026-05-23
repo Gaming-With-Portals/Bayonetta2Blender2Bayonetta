@@ -17,6 +17,20 @@ class ImportBayoSCR(bpy.types.Operator, ExportHelper):
         from . import scr_importer
         return scr_importer.ImportSCR(self.filepath)
     
+class ExportBayoSCR(bpy.types.Operator, ExportHelper):
+    '''Export SCR Data.'''
+    bl_idname = "export_scene.bayo_scr_data"
+    bl_label = "Export SCR Data"
+    bl_options = {'PRESET'}
+    filename_ext = ".scr"
+    filter_glob: StringProperty(default="*.scr", options={'HIDDEN'})
+
+    #reset_blend: bpy.props.BoolProperty(name="Reset Blender Scene on Import", default=True)
+
+    def execute(self, context):
+        from . import scr_exporter
+        return scr_exporter.export(self.filepath)
+
 
 class ImportVanqLYT(bpy.types.Operator, ExportHelper):
     '''Import LYT Data.'''

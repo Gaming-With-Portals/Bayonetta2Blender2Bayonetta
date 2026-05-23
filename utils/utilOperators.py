@@ -8,8 +8,8 @@ from .util import ShowMessageBox
 
 class RecalculateObjectIndices(bpy.types.Operator):
     """Re-calculate object indices for ordering (e.g. ##_Body_0)"""
-    bl_idname = "b2n.recalculateobjectindices"
-    bl_label = "Re-calculate Object Indices"
+    bl_idname = "b2b.recalculateobjectindices"
+    bl_label = "Re-calculate Batch Indices"
     bl_options = {'REGISTER', 'UNDO'}
 
     def recalculateIndicesInCollection(self, collectionName: str):
@@ -21,18 +21,46 @@ class RecalculateObjectIndices(bpy.types.Operator):
                 objects_list.append(obj)
         objects_list.sort(key = lambda x: int(x.name.split("-")[0]))
 
-        for idx, obj in reversed(list(enumerate(objects_list))):
-            split_name = obj.name.split("-")
-            obj.name = str(idx) + "-" + split_name[1] + "-" + split_name[2]
+        batch_idx_tracker = 0
+        current_mesh_id = -1
 
-        for obj in bpy.data.collections[collectionName].all_objects:
-            if obj.type == "MESH":
-                regex = re.search(".*(?=\.)", obj.name)
-                if regex != None:
-                    obj.name = regex.group()
+        # Pass 1: Batch Indexes
+        for idx, obj in enumerate(objects_list):
+            split_name = obj.name.split("-")
+            if (int(split_name[0]) != current_mesh_id):
+                batch_idx_tracker = 0
+                current_mesh_id = int(split_name[0])
+
+            if (idx != int(split_name[2])):
+                print("Incorrect naming order... fixing!")
+                obj.name = split_name[0] + "-" + split_name[1] + "-" + str(batch_idx_tracker)
+
+            batch_idx_tracker+=1
+
+
+        current_mesh_id = 0
+        '''# Pass 2: Mesh IDs:
+        for idx, obj in enumerate(objects_list):
+            split_name = obj.name.split("-")
+
+            if (abs(current_mesh_id-int(split_name[0]))>1):
+                print("Incorrect naming order... fixing!")
+                obj.name = split_name[0] + "-" + split_name[1] + "-" + str(batch_idx_tracker)
+
+            if (int(split_name[0]) != current_mesh_id):
+                batch_idx_tracker = 0
+                current_mesh_id = int(split_name[0])
+
+
+
+            batch_idx_tracker+=1'''
+        
+        return {'FINISHED'}
+        #obj.name = str(idx) + "-" + split_name[1] + "-" + split_name[2]
+
+
 
     def execute(self, context):
-        self.recalculateIndicesInCollection("COL")
         self.recalculateIndicesInCollection("WMB")
 
         return {'FINISHED'}
