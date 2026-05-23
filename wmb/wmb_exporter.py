@@ -949,7 +949,7 @@ class WMBDataGenerator:
                 bone_name_to_id_map[bone.name] = i # Come up with some ids for local bones, these can be entirely arbitrary'''
 
         if (not EXPORT_AS_STATIC_MESH):
-            if (self.bayo_2):
+            if (False): # Disable B2 bone generation
                 bone_ready_list = []
                 bones = arm_obj.data.bones
                 highest_local_id = 0
@@ -1006,20 +1006,42 @@ class WMBDataGenerator:
                             bone_name_to_id_map[bone.name] = highest_local_id
                             highest_local_id += 1
             else:
+                bones = arm_obj.data.bones
+                children_map = {bone: [] for bone in bones}
+                roots = []
+
+                for bone in bones:
+                    if bone.parent is None:
+                        roots.append(bone)
+                    else:
+                        children_map[bone.parent].append(bone)
+
+                dfs_bones = []
+
+                def dfs(bone):
+                    dfs_bones.append(bone)
+                    for child in children_map[bone]:
+                        dfs(child)
+
+                for root in roots:
+                    dfs(root)
+                
+
+
                 # make up some shi
                 current_highest_id = 0
-                for bone in arm_obj.data.bones:
+                for bone in dfs_bones:
                     if "id" in bone:
                         if bone["id"] > current_highest_id:
                             current_highest_id = bone["id"] + 1
 
-                for bone in arm_obj.data.bones:
+                for bone in dfs_bones:
                     if "id" not in bone:
                         bone["id"] = current_highest_id
                         current_highest_id+=1 
 
 
-                for i, bone in enumerate(sorted(arm_obj.data.bones, key=lambda x: x["id"])):
+                for i, bone in enumerate(dfs_bones): #enumerate(sorted(dfs_bones, key=lambda x: x["id"])):
                     bone_name_to_id_map[bone.name] = i
 
         offset_ticker = 0
@@ -1027,6 +1049,8 @@ class WMBDataGenerator:
         self.header_size = 128
         if (self.bayo_2):
             self.header_size = 192
+
+
 
         self.vtx_format = sub_collection.collection["vertex_format"]
 
@@ -1105,6 +1129,9 @@ class WMBDataGenerator:
                 offset_ticker = align(offset_ticker, ALIGN_TARGET)
             else:
                 self.offset_bone_flags = 0
+
+            print(sorted(bone_name_to_id_map.items(), key=lambda x: x[1]))
+
         else:
             self.offset_bone_parents = 0
             self.offset_bone_rel_positions = 0

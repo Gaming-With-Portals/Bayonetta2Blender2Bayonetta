@@ -112,13 +112,13 @@ class BayoJSONToMaterial(bpy.types.Operator):
                 material.bayo_data.textures.add()
                 material.bayo_data.textures[i].data = tex["data"]
                 material.bayo_data.textures[i].flag = tex["flag"]
-                material.bayo_data.textures[i].pos = tex["pos"]
+                material.bayo_data.textures[i].position = tex["pos"]
 
             material.bayo_data.b2_data.clear()
             for i, tex in enumerate(data_structure["datas"]):
                 material.bayo_data.b2_data.add()
                 material.bayo_data.b2_data[i].data = tex["data"]
-                material.bayo_data.b2_data[i].pos = tex["pos"]
+                material.bayo_data.b2_data[i].position = tex["pos"]
 
             material.bayo_data.ex_material_data.clear()
             for i, tex in enumerate(data_structure["exdatas"]):
