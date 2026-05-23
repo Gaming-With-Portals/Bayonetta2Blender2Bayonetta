@@ -55,10 +55,10 @@ def ImportSCR(filepath):
         wmb_offsets.append(offset_textures)
 
         f.seek(0, 2)
-        eof = f.tell()
+        #eof = f.tell()
         f.seek(offset_textures)
         txPk = open(os.path.join(extracted_wmb_dir,"scr.wtb"), "wb")
-        txPk.write(f.read(offset_textures-eof))
+        txPk.write(f.read_rest())
         txPk.close()
         pg_texture.extractTextures(os.path.join(extracted_wmb_dir,"scr.wtb"), os.path.join(extracted_wmb_dir,"scr.wtb"), extracted_textures_dir)
         scr_collection["textures"]=os.path.join(extracted_wmb_dir,"scr.wtb")
