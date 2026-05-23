@@ -64,3 +64,6 @@ class BinReader:
     
     def read_f32_vector3(self):
         return struct.unpack(f"{self.end_flag}fff", self.f.read(12))
+    
+    def read_rest(self):
+        return self.f.read()
