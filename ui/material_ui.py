@@ -132,7 +132,26 @@ class BayoJSONToMaterial(bpy.types.Operator):
         self.report({'INFO'}, "Pasted JSON")
         return {'FINISHED'}
 
+class BayoAddProperty(bpy.types.Operator):
+    bl_idname = "b2b.addproperty"
+    bl_label = "Add Property"
 
+    def execute(self, context):
+        material = bpy.context.material
+        new_item = material.bayo_data.ex_material_data.add()
+        new_item.data = 0
+
+        return {'FINISHED'}
+
+class BayoRemoveProperty(bpy.types.Operator):
+    bl_idname = "b2b.removeproperty"
+    bl_label = "Remove Property"
+
+    def execute(self, context):
+        material = bpy.context.material
+        material.bayo_data.ex_material_data.remove(len(material.bayo_data.ex_material_data) - 1)
+
+        return {'FINISHED'}
 
 class BayoMaterialPanelAdvanced(bpy.types.Panel):
     bl_label = "Advanced Properties"
@@ -161,6 +180,9 @@ class BayoMaterialPanelAdvanced(bpy.types.Panel):
                 
                 box.prop(dat, "data", text=f"Prop {i}:")
 
+            
+            layout.operator(BayoAddProperty.bl_idname, text="Add Property")
+            layout.operator(BayoRemoveProperty.bl_idname, text="Remove Property")
         else:
             box = layout.box()
             for param in mat.bayo_data.parameters:

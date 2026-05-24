@@ -13,7 +13,7 @@ from bpy.app.handlers import persistent
 from .wmb.wmbImportOperator import ImportBayoWMB
 from .wmb.wmbImportOperator import ExportBayoWMB
 from .dat_dtt.importer.datImportOperator import ImportNierDat
-from .ui.material_ui import BayoMaterialPanel, BayoMaterialToJSON, BayoJSONToMaterial
+from .ui.material_ui import BayoMaterialPanel, BayoMaterialToJSON, BayoJSONToMaterial, BayoAddProperty, BayoRemoveProperty
 from .ui.material_ui import BayoMaterialPanelAdvanced
 from .ui.mesh_ui import BayoObjectPanel
 from .utils.util import BayonettaVector4Property
@@ -22,6 +22,7 @@ from .wmb.wmb_materials import BayoMaterialDataProperty
 from .wmb.wmb_mesh_properties import BayoBatchDataProperty
 from .scr.scrOperators import ImportBayoSCR, ImportVanqLYT, ExportBayoSCR
 from .utils.utilOperators import RipMeshByUVIslands, RemoveUnusedVertexGroups, RecalculateObjectIndices
+from .mot.motOperators import ImportBayoMOT
 
 class BayonettaObjectMenu(bpy.types.Menu):
     bl_idname = 'OBJECT_MT_b2b2b'
@@ -44,6 +45,7 @@ class IMPORT_BN_MainMenu(bpy.types.Menu):
    
         self.layout.operator(ImportNierDat.bl_idname, text="Archive File (.dat, .dtt)", icon_value=raiden_icon.icon_id)
         self.layout.operator(ImportBayoWMB.bl_idname, text="Model File (.wmb)", icon_value=raiden_icon.icon_id)
+        #self.layout.operator(ImportBayoMOT.bl_idname, text="Animation File (.mot)", icon_value=raiden_icon.icon_id) Not yet
         self.layout.operator(ImportBayoSCR.bl_idname, text="Stage File (.scr)", icon_value=raiden_icon.icon_id)
         #self.layout.operator(ImportVanqLYT.bl_idname, text="Vanquish Stage (.lyt)")
 
@@ -89,6 +91,8 @@ classes = (
     ImportBayoWMB,
     ImportNierDat,
     ExportBayoWMB,
+    BayoAddProperty,
+    BayoRemoveProperty,
     BayoMaterialPanel,
     BayoMaterialPanelAdvanced,
     BayoMaterialToJSON,
@@ -102,7 +106,8 @@ classes = (
     B2BConfiguration,
     ExportBayoSCR,
     BayoBatchDataProperty,
-    RecalculateObjectIndices
+    RecalculateObjectIndices,
+    ImportBayoMOT
 )
 
 
