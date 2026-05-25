@@ -124,6 +124,13 @@ class WMBVertexChunk:
 
             obj["vertex_start"] = vertex_ticker
 
+            if (main_color_layer is None):
+                print("[!] No Base Colors found! (SCR Only)")
+            if (ex_color_layer is None):
+                print("[!] No ExColors found!")
+
+            
+
             previousIndex = -1
             for loop in sorted_loops:
                 vertex_info = []
@@ -252,169 +259,6 @@ class WMBVertexChunk:
 
             obj["vertex_end"] = vertex_ticker
         self.total_vertices = vertex_ticker
-
-
-
-        '''ref_table[obj.name] = {}
-            bone_counter = 0
-
-            depsgraph = bpy.context.evaluated_depsgraph_get()
-            eval_obj = obj.evaluated_get(depsgraph)
-            
-            eval_mesh = eval_obj.to_mesh()
-
-            if (eval_mesh.uv_layers.active is not None):
-                eval_mesh.calc_tangents(uvmap=eval_mesh.uv_layers.active.name)
-
-            
-            sorted_loops = sorted(eval_mesh.loops, key=lambda loop: loop.vertex_index)
-
-            color_layer = eval_mesh.vertex_colors.get("ExCol", None)
-            main_color_layer = eval_mesh.vertex_colors.get("Col", None)
-            
-            uv_layer = eval_mesh.uv_layers.active
-            if (uv_layer is None):
-                print("Warning! Mesh will not have UVs as there is no active UV layer")
-
-            uv_layer_2 = eval_mesh.uv_layers.get("UVMap2", None)
-            loop_map = {} 
-            loop_map_2 = {}
-            tangent_map = {}
-            color_map = {}
-            main_color_map = {}
-
-            for loop in eval_mesh.loops:
-                vidx = loop.vertex_index
-                if vidx not in loop_map and uv_layer is not None:
-                    loop_map[vidx] = uv_layer.data[loop.index].uv.copy() 
-                
-                if vidx not in loop_map_2 and uv_layer_2 is not None:
-                    loop_map_2[vidx] = uv_layer_2.data[loop.index].uv.copy() 
-
-                if vidx not in color_map and color_layer is not None:
-                    color_map[vidx] = color_layer.data[loop.index].color[:]
-
-                if vidx not in main_color_map and main_color_layer is not None:
-                    main_color_map[vidx] = main_color_layer.data[loop.index].color[:]
-
-                if vidx not in tangent_map:
-                    tangent = loop.tangent
-                    normal = loop.normal
-
-
-                    sign = 0xff if loop.bitangent_sign == -1 else 0
-                    tangent_map[vidx] = (tangent.x, tangent.y, tangent.z, sign)
-
-
-
-            obj["vertex_start"] = vertex_ticker
-
-            self.total_vertices += len(eval_mesh.vertices)
-
-            for vertex in eval_mesh.vertices:
-                vertex_ticker+=1
-                pos = vertex.co
-                normal = vertex.normal  # vertex normal (not loop normal)
-                
-                uv = loop_map.get(vertex.index, Vector((0.0, 0.0)))
-                uv_2 = loop_map_2.get(vertex.index, Vector((0.0, 0.0)))
-                MAX_WEIGHTS = 4
-                bone_weights = []
-                bone_indices = []
-                for g in vertex.groups:
-                    group_index = g.group
-                    weight = g.weight
-                    group_name = obj.vertex_groups[group_index].name
-                    bone_id = 0
-
-                    if (getBoneID(group_name) in ref_table[obj.name]):
-                        bone_id = ref_table[obj.name][getBoneID(group_name)]
-                    else:
-                        bone_id = bone_counter
-                        ref_table[obj.name][getBoneID(group_name)] = bone_counter
-                        bone_counter+=1
-
-                    
-                    bone_weights.append(weight)
-                    bone_indices.append(bone_id)
-
-                if (not EXPORT_AS_STATIC_MESH):
-                    pairs = list(zip(bone_weights, bone_indices))
-                    pairs = sorted(pairs, key=lambda p: p[0], reverse=True)[:MAX_WEIGHTS]
-
-                    float_weights = [p[0] for p in pairs]
-                    sel_indices = [p[1] for p in pairs]
-
-                    total = sum(float_weights)
-                    if total > 0:
-                        float_weights = [w / total for w in float_weights]
-                    else:
-                        float_weights = [0.0] * len(float_weights)
-
-                    while len(float_weights) < MAX_WEIGHTS:
-                        float_weights.append(0.0)
-                        sel_indices.append(0)
-
-                    int_weights = [int(w * 255.0) for w in float_weights]
-
-                    rem = 255 - sum(int_weights)
-                    if rem != 0:
-                        order = sorted(range(MAX_WEIGHTS), key=lambda i: float_weights[i], reverse=True)
-                        i = 0
-                        while rem != 0:
-                            idx = order[i]
-                            if rem > 0 and int_weights[idx] < 255:
-                                int_weights[idx] += 1
-                                rem -= 1
-                            elif rem < 0 and int_weights[idx] > 0:
-                                int_weights[idx] -= 1
-                                rem += 1
-                            i = (i + 1) % MAX_WEIGHTS
-
-                    int_weights = [max(0, min(255, w)) for w in int_weights]
-
-
-                def blenderColorToBayo(color):
-                    r = int(color[0]*255)
-                    g = int(color[1]*255)
-                    b = int(color[2]*255)
-                    a = int(color[3]*255)
-                    return (r, g, b, a)
-
-                vertex_info = []
-                ex_vertex_info = []
-                vertex_info.append(pos.copy())
-                vertex_info.append((normal.x, normal.z, -normal.y))
-
-                tangent_info = tangent_map.get(vertex.index, (0.0, 0.0, 0.0, 1.0))
-
-                vertex_info.append(tangent_info)
-                if (not EXPORT_AS_STATIC_MESH): # This is so bad LMAO
-                    vertex_info.append(tuple(sel_indices))
-                    vertex_info.append(tuple(int_weights))
-                else:
-                    vertex_info.append((0, 0, 0, 0))
-                    vertex_info.append((0, 0, 0, 0))
-
-                vertex_info.append(uv.copy())
-                vertex_info.append((uv[0], uv[1]))
-                if (main_color_layer):
-                    vertex_info.append(blenderColorToBayo(main_color_layer.get(vertex.index, (0, 0, 0, 0))))
-
-                ex_vertex_info.append(blenderColorToBayo(color_map.get(vertex.index, (0, 0, 0, 0))))
-                if (self.num_mapping == 2):
-                    if (COPY_UV_1_AS_2):
-                        ex_vertex_info.append(uv.copy())
-                    else:
-                        ex_vertex_info.append(uv_2.copy())
-
-                self.vertex_infos.append(vertex_info)
-                self.exvertex_infos.append(ex_vertex_info)
-
-                if (obj["dummy"]):
-                    break # Quit after the first iteration
-
-            obj["vertex_end"] = vertex_ticker'''
 
 def getBoneID(boneName):
     return bone_name_to_id_map[boneName] # later is now, and this is important!
@@ -949,63 +793,8 @@ class WMBDataGenerator:
                 bone_name_to_id_map[bone.name] = i # Come up with some ids for local bones, these can be entirely arbitrary'''
 
         if (not EXPORT_AS_STATIC_MESH):
-            if (False): # Disable B2 bone generation
-                bone_ready_list = []
-                bones = arm_obj.data.bones
-                highest_local_id = 0
-                highest_global_id = 0
-
-                for bone in bones:
-                    if "local_id" in bone:
-                        bone_name_to_id_map[bone.name] = bone["local_id"]
-                        bone_ready_list.append(bone.name)
-                        if bone["local_id"] > highest_local_id:
-                            highest_local_id = bone["local_id"] + 1
-                    if "id" in bone:
-                        if bone["id"] > highest_global_id and bone["id"] < 1000:
-                            highest_global_id = bone["id"] + 1
-
-                print(f"Greatest Local ID: {highest_local_id}")
-                print(f"Greatest Global ID: {highest_global_id}")
-
-                existing_global_ids = set()
-                seen_global_ids = set()
-                duplicate_bones = []
-
-                for bone in bones:
-                    if "id" in bone:
-                        if bone["id"] in seen_global_ids:
-                            duplicate_bones.append(bone)
-                        else:
-                            seen_global_ids.add(bone["id"])
-                            existing_global_ids.add(bone["id"])
-
-                for bone in duplicate_bones:
-                    while highest_global_id in existing_global_ids:
-                        highest_global_id += 1
-                    print(f"Duplicate global ID on '{bone.name}', reassigning to {highest_global_id}")
-                    bone["id"] = highest_global_id
-                    existing_global_ids.add(highest_global_id)
-                    highest_global_id += 1
-
-                for bone in bones:
-                    if "id" not in bone:
-                        while highest_global_id in existing_global_ids:
-                            highest_global_id += 1
-                        bone["id"] = highest_global_id
-                        existing_global_ids.add(highest_global_id)
-                        highest_global_id += 1
-
-                if len(bone_ready_list) == 0:
-                    for i, bone in enumerate(sorted(bones, key=lambda x: x["id"])):
-                        bone_name_to_id_map[bone.name] = i
-                else:
-                    for bone in bones:
-                        if bone.name not in bone_ready_list:
-                            print(f"Assigning {bone.name} to Local ID {highest_local_id}")
-                            bone_name_to_id_map[bone.name] = highest_local_id
-                            highest_local_id += 1
-            else:
+            
+            if (self.bayo_2):
                 bones = arm_obj.data.bones
                 children_map = {bone: [] for bone in bones}
                 roots = []
@@ -1042,6 +831,22 @@ class WMBDataGenerator:
 
 
                 for i, bone in enumerate(dfs_bones): #enumerate(sorted(dfs_bones, key=lambda x: x["id"])):
+                    bone_name_to_id_map[bone.name] = i
+            else:
+                # make up some shi
+                current_highest_id = 0
+                for bone in arm_obj.data.bones:
+                    if "id" in bone:
+                        if bone["id"] > current_highest_id:
+                            current_highest_id = bone["id"] + 1
+
+                for bone in arm_obj.data.bones:
+                    if "id" not in bone:
+                        bone["id"] = current_highest_id
+                        current_highest_id+=1 
+
+
+                for i, bone in enumerate(sorted(arm_obj.data.bones, key=lambda x: x["id"])):
                     bone_name_to_id_map[bone.name] = i
 
         offset_ticker = 0
@@ -1130,7 +935,7 @@ class WMBDataGenerator:
             else:
                 self.offset_bone_flags = 0
 
-            print(sorted(bone_name_to_id_map.items(), key=lambda x: x[1]))
+            #print(sorted(bone_name_to_id_map.items(), key=lambda x: x[1]))
 
         else:
             self.offset_bone_parents = 0
