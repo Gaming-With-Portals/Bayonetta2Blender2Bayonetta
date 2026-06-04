@@ -815,14 +815,13 @@ class WMBDataGenerator:
                 for root in roots:
                     dfs(root)
                 
-
-
-                # make up some shi
                 current_highest_id = 0
                 for bone in dfs_bones:
                     if "id" in bone:
                         if bone["id"] > current_highest_id:
-                            current_highest_id = bone["id"] + 1
+                            current_highest_id = bone["id"]
+
+                current_highest_id += 1 
 
                 for bone in dfs_bones:
                     if "id" not in bone:
@@ -833,12 +832,20 @@ class WMBDataGenerator:
                 for i, bone in enumerate(dfs_bones): #enumerate(sorted(dfs_bones, key=lambda x: x["id"])):
                     bone_name_to_id_map[bone.name] = i
             else:
-                # make up some shi
                 current_highest_id = 0
+                seen_ids = []
                 for bone in arm_obj.data.bones:
                     if "id" in bone:
+                        if (bone["id"] in seen_ids):
+                            print(f"[!] Clashing bone ID on {bone.name}, attempting to reassign!")
+                            del bone["id"]
+                            continue
+
+                        seen_ids.append(bone["id"])
                         if bone["id"] > current_highest_id:
-                            current_highest_id = bone["id"] + 1
+                            current_highest_id = bone["id"]
+
+                current_highest_id += 1 
 
                 for bone in arm_obj.data.bones:
                     if "id" not in bone:
@@ -1315,6 +1322,13 @@ def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=Fa
     f.write(b"This WMB was brought to you by Gaming With Portals, Raq, and Skyth")
 
     f.close()
+
+    if (not static_mesh):
+        if (generated_data.bone_inverse_kinetic_table.enabled):
+            print("[WARNING] Inverse Kinematics are enabled, this can cause issues on custom bones\nGo to the Armature custom properties to disable")
+        print()
+        if (generated_data.bone_sym.enabled):
+            print("[WARNING] Bone Symmetries are enabled, this can cause issues on custom bones\nGo to the Armature custom properties to disable")
 
     print("Done!")
     return {'FINISHED'}
