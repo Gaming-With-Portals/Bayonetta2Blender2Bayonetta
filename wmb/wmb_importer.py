@@ -274,18 +274,20 @@ class WMBMaterial:
 class WMBMaterial2:
     
 
-    def __init__(self, file, shader_name, size, ids, tex_ids_to_type):
-        self.matID = struct.unpack("<h", file.read(2))[0]
-        self.flags = struct.unpack("<h", file.read(2))[0]
+    def __init__(self, file : BinReader, shader_name, size, ids, tex_ids_to_type):
+        self.matID = file.read_s16()
+        self.flags = file.read_s16()
         self.texture_data = []
         self.data_data = []
         self.shader_name = shader_name
         self.tex_id_list = ids
         self.id_type_map = tex_ids_to_type
+        self.end_flag = file.end_flag
+
         for i in range(5):
-            self.texture_data.append(struct.unpack("<I", file.read(4))[0])
+            self.texture_data.append(file.read_u32())
         for i in range((size - 24) // 4):
-            self.data_data.append(struct.unpack("<f", file.read(4))[0])
+            self.data_data.append(file.read_float32())
 
 
     def toBPYMaterial(self, material_name, texture_path=""):
@@ -315,7 +317,7 @@ class WMBMaterial2:
                 texture_idx+=1
             else:
                 mat.bayo_data.b2_data.add()
-                mat.bayo_data.b2_data[data_idx].data = struct.unpack("<f", struct.pack("<I", self.texture_data[i]))[0]
+                mat.bayo_data.b2_data[data_idx].data = struct.unpack(self.end_flag+"f", struct.pack(self.end_flag+"I", self.texture_data[i]))[0]
                 mat.bayo_data.b2_data[data_idx].position = i
                 data_idx+=1
             i+=1
