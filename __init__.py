@@ -24,6 +24,8 @@ from .scr.scrOperators import ImportBayoSCR, ImportVanqLYT, ExportBayoSCR
 from .utils.utilOperators import RipMeshByUVIslands, RemoveUnusedVertexGroups, RecalculateObjectIndices
 from .mot.motOperators import ImportBayoMOT
 
+from .phys import physPanel
+
 class BayonettaObjectMenu(bpy.types.Menu):
     bl_idname = 'OBJECT_MT_b2b2b'
     bl_label = 'Bayonetta Tools'
@@ -148,6 +150,8 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
 
+    physPanel.register()
+
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
     bpy.types.VIEW3D_MT_object.append(menu_func_utils)
@@ -169,6 +173,7 @@ def unregister():
         bpy.utils.previews.remove(pcoll)
     preview_collections.clear()
 
+    physPanel.deregister()
 
     for cls in classes:
         bpy.utils.unregister_class(cls)

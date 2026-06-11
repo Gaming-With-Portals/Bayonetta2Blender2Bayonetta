@@ -576,6 +576,8 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
 
         model_collection = bpy.data.collections.new(wmb_name)
         model_collection["vertex_format"] = vertexFormat
+        model_collection["num_uv"] = num_uvmaps
+        model_collection["num_color"] = num_colors
 
         wmb_collection.children.link(model_collection)
 

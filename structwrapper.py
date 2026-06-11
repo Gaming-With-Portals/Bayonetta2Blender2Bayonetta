@@ -67,3 +67,61 @@ class BinReader:
     
     def read_rest(self):
         return self.f.read()
+
+class BinWriter:
+    def __init__(self, f : BufferedReader, isBig=False):
+        self.f = f
+        self.big = isBig
+        self.end_flag = "<"
+        self.update_endianess_flag()
+
+    def update_endianess_flag(self):
+        if (self.big):
+            self.end_flag = ">"
+        else:
+            self.end_flag = "<"
+
+    def write_u32(self, val):
+        self.f.write(struct.pack(self.end_flag+"I", val))
+
+    def write_s32(self, val):
+        self.f.write(struct.pack(self.end_flag+"i", val))
+
+    def write_u16(self, val):
+        self.f.write(struct.pack(self.end_flag+"H", val))
+
+    def write_s16(self, val):
+        self.f.write(struct.pack(self.end_flag+"h", val))
+        
+    def write_u8(self, val):
+        self.f.write(struct.pack(self.end_flag+"B", val))
+
+    def write_s8(self, val):
+        self.f.write(struct.pack(self.end_flag+"b", val))
+
+    def write_float32(self, val):
+        self.f.write(struct.pack(self.end_flag+"f", val))
+
+    def write_float16(self, val):
+        self.f.write(struct.pack(self.end_flag+"e", val))
+
+    def write_vector3(self, x, y, z):
+        self.f.write(struct.pack(self.end_flag+"fff", x, y, z))
+
+    def write_packed_bytes(self, x, y, z, w):
+        self.f.write(struct.pack(self.end_flag+"bbbb", x, y, z, w))
+
+    def write_packed_bytes_unsigned(self, x, y, z, w):
+        self.f.write(struct.pack(self.end_flag+"BBBB", x, y, z, w))
+
+    def write(self, data):
+        self.f.write(data)
+
+    def tell(self):
+        return self.f.tell()
+    
+    def seek(self, offset, whence=0):
+        if (whence==0):
+            self.f.seek(offset)
+        elif (whence==1):
+            self.f.seek(self.f.tell() + offset)
