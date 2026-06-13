@@ -630,6 +630,12 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
             for i in range(numBones):
                 flag_map[i] = wf.read_u8()
 
+        sym_map = {}
+        if (offsetBoneSymmetries != 0):
+            wf.seek(offsetBoneSymmetries)
+            for i in range(numBones):
+                sym_map[i] = wf.read_s16()
+
         # build skel
         if numBones > 0:
             arm_data = bpy.data.armatures.new(wmb_name)
@@ -699,10 +705,12 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 arm_obj["translate_table_3"] = third_level
                 arm_obj["translate_table_size"] = f.tell() - offsetBoneIndexTranslateTable
 
+            def getBlenderBoneName(id):
+                return bone_name_map.get(id, f"bone{id:04}")
 
             edit_bones = {}
             for i in range(numBones):
-                bone_name = bone_name_map.get(i, f"bone{i:04}")
+                bone_name = getBlenderBoneName(i)
                 bone_id = bone_id_map.get(i, -1)
                 bone = arm_data.edit_bones.new(bone_name)
                 bone["local_id"] = i
@@ -712,6 +720,11 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 bone.tail = bone.head + Vector((0.0, 0.05, 0.0))
                 if (offsetBoneFlags != 0):
                     bone["flags"] = flag_map[i]
+                if (offsetBoneSymmetries != 0):
+                    
+                    if (sym_map[i] != -1):
+                        bone["sym_partner"] = getBlenderBoneName(sym_map[i])
+
                 bone["id"] = bone_id
                 edit_bones[i] = bone
 
@@ -735,6 +748,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
             arm_obj["bone_symmetries"] = False
             if (offsetBoneSymmetries != 0):
                 arm_obj["bone_symmetries"] = True
+                arm_obj["regen_symmetries"] = False
 
             arm_obj["inverse_kinematics"] = False
             if (offsetInverseKinematics != 0):
@@ -1025,6 +1039,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 obj = bpy.data.objects.new(object_name, mesh)
 
                 obj["dummy"] = False
+                obj["copy_uv_1_as_2"] = False
                 obj["flags"] = mesh_flags[mesh_index]
                 obj["batch_flags"] = batch_faces[1].flags
 

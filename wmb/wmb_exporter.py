@@ -17,6 +17,7 @@ EXCEPT_AFTER_GENERATION = False
 COPY_UV_1_AS_2 = True
 BAYONETTA_2 = False
 EXPORT_AS_STATIC_MESH = False
+REGEN_SYM = False
 
 bone_name_to_id_map = {}
 
@@ -110,6 +111,9 @@ class WMBVertexChunk:
             if obj.type != 'MESH':
                 continue
             
+            if ("copy_uv_1_as_2" not in obj):
+                obj["copy_uv_1_as_2"] = False
+
             print(f"[>] Generating vertex data for {obj.name}")
 
             if len(obj.data.uv_layers) != 0:
@@ -248,7 +252,7 @@ class WMBVertexChunk:
                     ex_vertex_info.append((0, 0, 0, 0))
 
                 if (self.num_mapping == 2):
-                    if (COPY_UV_1_AS_2):
+                    if (obj["copy_uv_1_as_2"]):
                         ex_vertex_info.append(mainUV)
                     else:
                         if (exMap is not None):
@@ -374,22 +378,38 @@ class WMBBoneSymmetries:
         # TODO: Not perfect
         self.enabled = False
         self.sym_map = {}
+        seen_bones = []
         if (arm_obj["bone_symmetries"]):
             self.enabled = True
+            if ("regen_symmetries" not in arm_obj):
+                arm_obj["regen_symmetries"] = True
+
+            if (arm_obj["regen_symmetries"]):
+                for bone in arm_obj.data.bones: # this is such a terrible way of doing this lmao
+                    pos = bone.head_local
+                    for bone_2 in arm_obj.data.bones:
+                        if bone.name == bone_2.name:
+                            continue
+
+                        pos_2 = bone_2.head_local
+                        if (pos[0] == 0 or pos_2[0] == 0): # Skip center bones
+                            continue
+
+                        if (bone_2 in seen_bones):
+                            continue
+                        else:
+                            seen_bones.append(bone_2)
+
+
+                        if abs(-pos[0] - pos_2[0]) < 0.0001:
+                            self.sym_map[getBoneID(bone.name)] = getBoneID(bone_2.name)
+            else:
+                for bone in arm_obj.data.bones:
+                    if ("sym_partner" in bone):
+                        self.sym_map[getBoneID(bone.name)] = getBoneID(bone["sym_partner"])
+
             
-            for bone in arm_obj.data.bones: # this is such a terrible way of doing this lmao
-                pos = bone.head_local
-                for bone_2 in arm_obj.data.bones:
-                    if bone.name == bone_2.name:
-                        continue
-
-                    pos_2 = bone_2.head_local
-                    if (pos[0] == 0 or pos_2[0] == 0): # Skip center bones
-                        continue
-
-
-                    if abs(-pos[0] - pos_2[0]) < 0.0001:
-                        self.sym_map[getBoneID(bone.name)] = getBoneID(bone_2.name)
+            
 
 class WMBBoneFlags:
     def __init__(self, arm_obj):
@@ -721,9 +741,11 @@ class WMBExMaterialInfo():
         
 
 class WMBDataGenerator:
-    def __init__(self, colName="WMB", targetCollection=None):
+    def __init__(self, colName="WMB", targetCollection=None, platform="PC", gamename="AUTO"):
         #ALIGN_TARGET = 64
         ALIGN_TARGET = 0x20
+
+        self.error_state = 0
 
         if (targetCollection == None):
             wmb_collection =  bpy.context.view_layer.layer_collection.children[colName]
@@ -741,6 +763,16 @@ class WMBDataGenerator:
 
         if ("b2" not in arm_obj):
             arm_obj["b2"] = False # Assume not b2
+
+        if (gamename == "BAYO1" and arm_obj["b2"]):
+            reportError("[!] Cannot export a WMB0+ mesh in the WMB0 style, please change your game target")
+            self.error_state = 1
+            return
+        
+        if (gamename not in ("BAYO1", "AUTO") and arm_obj["b2"] == False):
+            reportError("[!] Cannot export a WMB0 mesh in the WMB0+ style, please change your game target")
+            self.error_state = 1
+            return
 
         self.bayo_2 = arm_obj["b2"]
         if (self.bayo_2):
@@ -1018,6 +1050,8 @@ class WMBDataGenerator:
                     self.mesh_offsets.append(mesh_offset_ticker)
                     self.meshes.append(mesh_dat)
                     mesh_offset_ticker+=mesh_dat.fetch_size()
+
+ 
 
 
 def WMB0_Write_HDR(f : BinWriter, generated_data : WMBDataGenerator):
@@ -1305,13 +1339,14 @@ def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=Fa
 
 
     print("- BEGIN EXPORT -")
-    rf = open(filepath, "wb")
+    
     print("[>] Preparing data...")
 
-    generated_data = WMBDataGenerator(targetCollection=targetCol) # Loosely based off of MGR2Blender
-
+    generated_data = WMBDataGenerator(targetCollection=targetCol, platform=platform, gamename=gamename) # Loosely based off of MGR2Blender
+    if (generated_data.error_state == 1):
+        return {'CANCELLED'}
     
-
+    rf = open(filepath, "wb")
     f = BinWriter(rf, platform in BIG_ENDIAN_PLATFORMS)
     if (f.big):
         print("[>] Exporting Big Endian (Expiremental)")
