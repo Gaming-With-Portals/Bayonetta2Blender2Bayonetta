@@ -8,6 +8,7 @@ import numpy as np
 from .wmb_materials import materialSizeDictionary
 from .wmb_custom_bones import encode_parts_index_no_table as GenerateTranslateTable
 import re
+from ..structwrapper import BinWriter
 
 GENERATE_TRANSLATE_TABLE = True
 USE_LARGE_BONES = False
@@ -16,6 +17,7 @@ EXCEPT_AFTER_GENERATION = False
 COPY_UV_1_AS_2 = True
 BAYONETTA_2 = False
 EXPORT_AS_STATIC_MESH = False
+REGEN_SYM = False
 
 bone_name_to_id_map = {}
 
@@ -83,15 +85,22 @@ def blenderColorToBayo(color):
 class WMBVertexChunk:
 
 
-    def __init__(self, children, ref_table, b2):
+    def __init__(self, children, ref_table, b2, col):
         self.vertex_infos = []
         self.exvertex_infos = []
         self.total_vertices = 0
         self.num_mapping = 2
         self.num_color = 1
 
-        if (b2):
-            self.num_mapping = 1
+        if ("num_color" in col.collection):
+            self.num_color = int(col.collection["num_color"])
+
+        if ("num_uv" in col.collection):
+            self.num_mapping = int(col.collection["num_uv"])
+        else:
+            if (b2):
+                self.num_mapping = 1
+
 
         self.exvertex_size = (self.num_color*4)
         if (self.num_mapping>1):
@@ -102,6 +111,9 @@ class WMBVertexChunk:
             if obj.type != 'MESH':
                 continue
             
+            if ("copy_uv_1_as_2" not in obj):
+                obj["copy_uv_1_as_2"] = False
+
             print(f"[>] Generating vertex data for {obj.name}")
 
             if len(obj.data.uv_layers) != 0:
@@ -240,7 +252,7 @@ class WMBVertexChunk:
                     ex_vertex_info.append((0, 0, 0, 0))
 
                 if (self.num_mapping == 2):
-                    if (COPY_UV_1_AS_2):
+                    if (obj["copy_uv_1_as_2"]):
                         ex_vertex_info.append(mainUV)
                     else:
                         if (exMap is not None):
@@ -366,22 +378,38 @@ class WMBBoneSymmetries:
         # TODO: Not perfect
         self.enabled = False
         self.sym_map = {}
+        seen_bones = []
         if (arm_obj["bone_symmetries"]):
             self.enabled = True
+            if ("regen_symmetries" not in arm_obj):
+                arm_obj["regen_symmetries"] = True
+
+            if (arm_obj["regen_symmetries"]):
+                for bone in arm_obj.data.bones: # this is such a terrible way of doing this lmao
+                    pos = bone.head_local
+                    for bone_2 in arm_obj.data.bones:
+                        if bone.name == bone_2.name:
+                            continue
+
+                        pos_2 = bone_2.head_local
+                        if (pos[0] == 0 or pos_2[0] == 0): # Skip center bones
+                            continue
+
+                        if (bone_2 in seen_bones):
+                            continue
+                        else:
+                            seen_bones.append(bone_2)
+
+
+                        if abs(-pos[0] - pos_2[0]) < 0.0001:
+                            self.sym_map[getBoneID(bone.name)] = getBoneID(bone_2.name)
+            else:
+                for bone in arm_obj.data.bones:
+                    if ("sym_partner" in bone):
+                        self.sym_map[getBoneID(bone.name)] = getBoneID(bone["sym_partner"])
+
             
-            for bone in arm_obj.data.bones: # this is such a terrible way of doing this lmao
-                pos = bone.head_local
-                for bone_2 in arm_obj.data.bones:
-                    if bone.name == bone_2.name:
-                        continue
-
-                    pos_2 = bone_2.head_local
-                    if (pos[0] == 0 or pos_2[0] == 0): # Skip center bones
-                        continue
-
-
-                    if abs(-pos[0] - pos_2[0]) < 0.0001:
-                        self.sym_map[getBoneID(bone.name)] = getBoneID(bone_2.name)
+            
 
 class WMBBoneFlags:
     def __init__(self, arm_obj):
@@ -411,27 +439,27 @@ class WMBMaterial(): # Good enough for a direct port
     def fetch_size(self):
         return self.size
     
-    def write(self, f):
-        f.write(struct.pack("<H", self.type))
-        f.write(struct.pack("<H", self.flag))
+    def write(self, f : BinWriter):
+        f.write_u16(self.type)
+        f.write_u16(self.flag)
         for data in self.formal_data:
             data_fmt = data.type
             if (data_fmt == "sampler2D_t" or data_fmt == "samplerCUBE_t"):
-                f.write(struct.pack("<i", data.value_int))
+                f.write_s32(data.value_int)
             elif (data_fmt == "f4_float3_t"):
-                f.write(struct.pack("<fff", *data.value_vec3))
-                f.write(struct.pack("<f", -1))
+                f.write_vector3(*data.value_vec3)
+                f.write_float32(-1)
             elif (data_fmt == "f4_float2_t"):
-                f.write(struct.pack("<ff", *data.value_vec2))
-                f.write(struct.pack("<f", -1))
-                f.write(struct.pack("<f", -1))
+                f.write(struct.pack(f.end_flag+"ff", *data.value_vec2))
+                f.write_float32(-1)
+                f.write_float32(-1)
             elif (data_fmt == "f4_float_t"):
-                f.write(struct.pack("<f", data.value_float))
-                f.write(struct.pack("<f", -1))
-                f.write(struct.pack("<f", -1))
-                f.write(struct.pack("<f", -1))
+                f.write_float32(data.value_float)
+                f.write_float32(-1)
+                f.write_float32(-1)
+                f.write_float32(-1)
             else:
-                f.write(struct.pack("<ffff", *data.value_vec4))
+                f.write(struct.pack(f.end_flag+"ffff", *data.value_vec4))
 
         #for i in self.data: # Write raw data
         #    f.write(struct.pack("<i", i))
@@ -447,13 +475,13 @@ class Bayonetta2Material():
     def fetch_size(self):
         return 0x4 + (0x4*len(self.datas))+(0x4*len(self.exdatas))
     
-    def write(self, f):
-        f.write(struct.pack("<H", self.id))
-        f.write(struct.pack("<H", self.flag))
+    def write(self, f : BinWriter):
+        f.write_u16(self.id)
+        f.write_u16(self.flag)
         for data in self.datas:
-            f.write(struct.pack("<I", data))
+            f.write_u32(data)
         for data in self.exdatas:
-            f.write(struct.pack("<f", data))
+            f.write_float32(data)
 
 class WMBMaterialBlob:
     def __init__(self, arm_obj, material_map, bayonetta_2):
@@ -713,9 +741,11 @@ class WMBExMaterialInfo():
         
 
 class WMBDataGenerator:
-    def __init__(self, colName="WMB", targetCollection=None):
-        ALIGN_TARGET = 64
+    def __init__(self, colName="WMB", targetCollection=None, platform="PC", gamename="AUTO"):
+        #ALIGN_TARGET = 64
+        ALIGN_TARGET = 0x20
 
+        self.error_state = 0
 
         if (targetCollection == None):
             wmb_collection =  bpy.context.view_layer.layer_collection.children[colName]
@@ -733,6 +763,16 @@ class WMBDataGenerator:
 
         if ("b2" not in arm_obj):
             arm_obj["b2"] = False # Assume not b2
+
+        if (gamename == "BAYO1" and arm_obj["b2"]):
+            reportError("[!] Cannot export a WMB0+ mesh in the WMB0 style, please change your game target")
+            self.error_state = 1
+            return
+        
+        if (gamename not in ("BAYO1", "AUTO") and arm_obj["b2"] == False):
+            reportError("[!] Cannot export a WMB0 mesh in the WMB0+ style, please change your game target")
+            self.error_state = 1
+            return
 
         self.bayo_2 = arm_obj["b2"]
         if (self.bayo_2):
@@ -882,7 +922,7 @@ class WMBDataGenerator:
 
         ## -- VERTEX CHUNK A --
         self.offset_vertexes = offset_ticker
-        self.vertex_data = WMBVertexChunk(getObjectChildren(arm_obj), bone_reference_dictionary, self.bayo_2)
+        self.vertex_data = WMBVertexChunk(getObjectChildren(arm_obj), bone_reference_dictionary, self.bayo_2, sub_collection)
         offset_ticker += self.vertex_data.total_vertices * 32
         offset_ticker = align(offset_ticker, ALIGN_TARGET)
 
@@ -890,6 +930,8 @@ class WMBDataGenerator:
 
         offset_ticker += self.vertex_data.total_vertices * self.vertex_data.exvertex_size
         offset_ticker = align(offset_ticker, ALIGN_TARGET)
+
+
 
         ## -- BONE CHUNK --
         if (not EXPORT_AS_STATIC_MESH):
@@ -1009,62 +1051,72 @@ class WMBDataGenerator:
                     self.meshes.append(mesh_dat)
                     mesh_offset_ticker+=mesh_dat.fetch_size()
 
+ 
 
-def WMB0_Write_HDR(f, generated_data : WMBDataGenerator):
-    f.write(b'WMB\x00')
-    f.write(struct.pack("<i", 0))
-    f.write(struct.pack("<i", generated_data.vtx_format))
-    f.write(struct.pack("<i", generated_data.vertex_data.total_vertices))
-    f.write(struct.pack("<b", generated_data.vertex_data.num_mapping))
-    f.write(struct.pack("<b", generated_data.vertex_data.num_color))
-    f.write(struct.pack("<h", 0))
-    f.write(struct.pack("<I", 0))
-    f.write(struct.pack("<I", generated_data.offset_vertexes))
-    f.write(struct.pack("<I", generated_data.offset_ex_vertexes))
-    f.write(struct.pack("<I", 0))
-    f.write(struct.pack("<I", 0))
-    f.write(struct.pack("<I", 0))
-    f.write(struct.pack("<I", 0))
+
+def WMB0_Write_HDR(f : BinWriter, generated_data : WMBDataGenerator):
+    if (f.big):
+        f.write(b'\x00BMW')
+    else:
+        f.write(b'WMB\x00')
+    f.write_s32(0)
+    f.write_s32(generated_data.vtx_format)
+    f.write_s32(generated_data.vertex_data.total_vertices)
+    f.write_s8(generated_data.vertex_data.num_mapping)
+    f.write_s8(generated_data.vertex_data.num_color)
+    f.write_s16(0)
+    f.write_u32(0)
+    f.write_u32(generated_data.offset_vertexes)
+    f.write_u32(generated_data.offset_ex_vertexes)
+    f.write_u32(0)
+    f.write_u32(0)
+    f.write_u32(0)
+    f.write_u32(0)
     # Bone Chunk
-    f.write(struct.pack("<I", generated_data.bone_count))
-    f.write(struct.pack("<I", generated_data.offset_bone_parents))
-    f.write(struct.pack("<I", generated_data.offset_bone_rel_positions))
-    f.write(struct.pack("<I", generated_data.offset_bone_abs_positions))
-    f.write(struct.pack("<I", generated_data.offset_bone_index_translate_table))
+    f.write_u32(generated_data.bone_count)
+    f.write_u32(generated_data.offset_bone_parents)
+    f.write_u32(generated_data.offset_bone_rel_positions)
+    f.write_u32(generated_data.offset_bone_abs_positions)
+    f.write_u32(generated_data.offset_bone_index_translate_table)
     # Material Chunk
-    f.write(struct.pack("<I", generated_data.mat_blob.material_count))
-    f.write(struct.pack("<I", generated_data.mat_offset_offset))
-    f.write(struct.pack("<I", generated_data.mat_offset))
+    f.write_u32(generated_data.mat_blob.material_count)
+    f.write_u32(generated_data.mat_offset_offset)
+    f.write_u32(generated_data.mat_offset)
     # Mesh Chunk
-    f.write(struct.pack("<I", generated_data.mesh_blob.mesh_count))
-    f.write(struct.pack("<I", generated_data.mesh_offset_offset))
-    f.write(struct.pack("<I", generated_data.mesh_offset))
-    f.write(struct.pack("<I", 0))
+    f.write_u32(generated_data.mesh_blob.mesh_count)
+    f.write_u32(generated_data.mesh_offset_offset)
+    f.write_u32(generated_data.mesh_offset)
+    f.write_u32(0)
     batch_count = 0
     for mesh in generated_data.meshes:
         batch_count += len(mesh.batches)
 
-    f.write(struct.pack("<I", batch_count)) # Num Shader Setting
+    f.write_u32(batch_count) # Num Shader Setting
 
     f.seek(100)
-    f.write(struct.pack("<I", generated_data.offset_bone_inverse_kinetic_table))
-    f.write(struct.pack("<I", generated_data.offset_bone_sym))
-    f.write(struct.pack("<I", generated_data.offset_bone_flags))
+    f.write_u32(generated_data.offset_bone_inverse_kinetic_table)
+    f.write_u32(generated_data.offset_bone_sym)
+    f.write_u32(generated_data.offset_bone_flags)
 
     if (generated_data.bayo_2):
-        f.write(struct.pack("<I", generated_data.exmat_offset))
-        f.write(struct.pack("<I", generated_data.texture_list_offset))
-        f.write(struct.pack("<I", generated_data.ex_mat_A))
-        f.write(struct.pack("<I", generated_data.ex_mat_B))
+        f.write_u32(generated_data.exmat_offset)
+        f.write_u32(generated_data.texture_list_offset)
+        f.write_u32(generated_data.ex_mat_A)
+        f.write_u32(generated_data.ex_mat_B)
 
-def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
+def WMB0_Write_VertexData(f : BinWriter, generated_data : WMBDataGenerator):
     for data in generated_data.vertex_data.vertex_infos:
-        f.write(struct.pack("<fff", *data[0]))
-        f.write(struct.pack("<ee", *data[5] ))
+        f.write_float32(data[0][0])
+        f.write_float32(data[0][1])
+        f.write_float32(data[0][2])
+        f.write_float16(data[5][0])
+        f.write_float16(data[5][1])
+
+        #f.write(struct.pack("<ee", *data[5]))
 
         if (generated_data.bayo_2):
             fx, fy, fz = data[1][0], data[1][1], data[1][2]
-            f.write(struct.pack('<I', pack_b2_normal(fx, -fz, fy))) # Normals
+            f.write_float32(pack_b2_normal(fx, -fz, fy)) # Normals (Might be wrong for BE)
 
         else:
             nx = int(round(data[1][0] * 127))
@@ -1074,9 +1126,11 @@ def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
             nx = max(-127, min(127, nx))
             ny = max(-127, min(127, ny))
             nz = max(-127, min(127, nz))
-
-
-            f.write(struct.pack('<4b', 0, ny, -nz, nx)) # Normals
+            #f.write(struct.pack('<4b', 0, ny, -nz, nx)) # Normals
+            f.write_s8(0) # might need to be order flipped
+            f.write_s8(ny)
+            f.write_s8(-nz)
+            f.write_s8(nx)
 
         tx, ty, tz, d = data[2]
         tangent_bytes = bytes([
@@ -1086,184 +1140,189 @@ def WMB0_Write_VertexData(f, generated_data : WMBDataGenerator):
             d
         ])
 
-        f.write(tangent_bytes)
+        f.write(tangent_bytes) # might need to be order flipped for BE
 
         if (EXPORT_AS_STATIC_MESH):
-            f.write(struct.pack("<I", 0))
+            f.write_u32("<I", 0)
             #f.write(struct.pack("<BBBB", *data[7]))
             if (generated_data.vertex_data.num_mapping == 2):
-                uv_bytes = float_to_half_bytes(data[1][0]) + float_to_half_bytes(1 - data[1][1])
-                f.write(uv_bytes)
+                #uv_bytes = float_to_half_bytes(data[1][0]) + float_to_half_bytes(1 - data[1][1])
+                #f.write(uv_bytes)
+                f.write_float16(data[1][0])
+                f.write_float16(data[1][1])
+
         else:
-            f.write(struct.pack("<BBBB", *data[3])) # Bone Indexes
-            f.write(struct.pack("<BBBB", *data[4])) # Bone Weights
+            f.write_packed_bytes_unsigned(*data[3]) # Bone Indexes
+            f.write_packed_bytes_unsigned(*data[4]) # Bone Weights
 
 
     f.seek(generated_data.offset_ex_vertexes)
     for data in generated_data.vertex_data.exvertex_infos:
-        f.write(struct.pack("<BBBB", *data[0]))
+        f.write_packed_bytes_unsigned(*data[0])
         if (generated_data.vertex_data.num_mapping == 2):
-            f.write(struct.pack("<ee", *data[1] ))
+            f.write_float16(data[1][0])
+            f.write_float16(data[1][1])
 
-def WMB0_Write_BoneParents(f, generated_data : WMBDataGenerator):
+def WMB0_Write_BoneParents(f : BinWriter, generated_data : WMBDataGenerator):
     bone_map = generated_data.bone_parents.bone_map
 
     max_index = max(bone_map.keys())
 
     for bone_index in range(max_index + 1):
         parent_index = bone_map.get(bone_index, -1)
-        f.write(struct.pack("<h", parent_index))
+        f.write_s16(parent_index)
 
-def WMB0_Write_Positions_Rel(f, generated_data : WMBDataGenerator):
+def WMB0_Write_Positions_Rel(f : BinWriter, generated_data : WMBDataGenerator):
     bone_map = generated_data.bone_positions.bone_rel_map
     for bone_index in sorted(bone_map.keys()):
         position = bone_map[bone_index]
-        f.write(struct.pack("<f", position[0]))
-        f.write(struct.pack("<f", position[2]))
-        f.write(struct.pack("<f", -position[1]))
+        f.write_float32(position[0])
+        f.write_float32(position[2])
+        f.write_float32(-position[1])
 
 def WMB0_Write_Positions_Abs(f, generated_data : WMBDataGenerator):
     bone_map = generated_data.bone_positions.bone_pos_map
     for bone_index in sorted(bone_map.keys()):
         position = bone_map[bone_index]
-        f.write(struct.pack("<f", position[0]))
-        f.write(struct.pack("<f", position[2]))
-        f.write(struct.pack("<f", -position[1]))
+        f.write_float32(position[0])
+        f.write_float32(position[2])
+        f.write_float32(-position[1])
 
 
-def WMB0_Write_BoneIndexTranslateTable(f, generated_data : WMBDataGenerator):
+def WMB0_Write_BoneIndexTranslateTable(f : BinWriter, generated_data : WMBDataGenerator):
     if (GENERATE_TRANSLATE_TABLE):
         for i in generated_data.bone_index_translate_table.data:
-            f.write(struct.pack("<H", i))
+            f.write_u16(i)
 
     else:
         for i in generated_data.bone_index_translate_table.level_1:
-            f.write(struct.pack("<h", i))
+            f.write_s16(i)
         for i in generated_data.bone_index_translate_table.level_2:
-            f.write(struct.pack("<h", i))
+            f.write_s16(i)
         for i in generated_data.bone_index_translate_table.level_3:
-            f.write(struct.pack("<h", i))
+            f.write_s16(i)
 
-def WMB0_Write_IK(f, generated_data : WMBDataGenerator):
+def WMB0_Write_IK(f : BinWriter, generated_data : WMBDataGenerator):
     if (generated_data.bone_inverse_kinetic_table.enabled):
-        f.write(struct.pack("<b", generated_data.bone_inverse_kinetic_table.count))
-        f.write(struct.pack("<bbb", *generated_data.bone_inverse_kinetic_table.data))
-        f.write(struct.pack("<i", generated_data.bone_inverse_kinetic_table.offset))
+        f.write_s8(generated_data.bone_inverse_kinetic_table.count)
+        f.write(struct.pack(f.end_flag+"bbb", *generated_data.bone_inverse_kinetic_table.data))
+        f.write_s32(generated_data.bone_inverse_kinetic_table.offset)
         for table in generated_data.bone_inverse_kinetic_table.structures:
-            f.write(struct.pack("<" + ("b" * 16), *table))
+            f.write(struct.pack(f.end_flag + ("b" * 16), *table))
 
-def WMB0_Write_Sym(f, generated_data : WMBDataGenerator):
+def WMB0_Write_Sym(f : BinWriter, generated_data : WMBDataGenerator):
     if (generated_data.bone_sym.enabled):
         bone_map = generated_data.bone_sym.sym_map
 
         max_index = max(bone_map.keys())
         for bone_index in range(max_index + 1):
             sym_idx = bone_map.get(bone_index, -1)
-            f.write(struct.pack("<h", sym_idx))
+            f.write_s16(sym_idx)
 
-def WMB0_Write_Flags(f, generated_data : WMBDataGenerator):
+def WMB0_Write_Flags(f : BinWriter, generated_data : WMBDataGenerator):
     if (generated_data.bone_flags.enabled):
         bone_map = generated_data.bone_flags.flag_map
 
         max_index = max(bone_map.keys())
         for bone_index in range(max_index + 1):
             sym_idx = bone_map.get(bone_index, -1)
-            f.write(struct.pack("<B", sym_idx))
+            f.write_u8(sym_idx)
 
-def WMB0_Write_Mat_Offsets(f, generated_data : WMBDataGenerator):
+def WMB0_Write_Mat_Offsets(f : BinWriter, generated_data : WMBDataGenerator):
     for ofst in generated_data.mat_blob.offsets:
-        f.write(struct.pack("<I", ofst))
+        f.write_u32(ofst)
 
-def WMB0_Write_Mat(f, generated_data : WMBDataGenerator):
+def WMB0_Write_Mat(f : BinWriter, generated_data : WMBDataGenerator):
     for mat in generated_data.mat_blob.materials:
         mat.write(f)
 
-def WMB0_Write_B2_ExMaterialInfo(f, generated_data : WMBDataGenerator):
+def WMB0_Write_B2_ExMaterialInfo(f : BinWriter, generated_data : WMBDataGenerator):
     for mat in generated_data.mat_blob.materials:
         f.write(mat.shader_name.ljust(16, '\x00').encode('utf-8'))
 
     f.seek(generated_data.texture_list_offset)
-    f.write(struct.pack("<I", len(generated_data.exmat_blob.tex_info)))
+    f.write_u32(len(generated_data.exmat_blob.tex_info))
     for idx, flag in generated_data.exmat_blob.tex_info:
-        f.write(struct.pack("<I", idx))
-        f.write(struct.pack("<I", flag))
+        f.write_u32(idx)
+        f.write_u32(flag)
 
 
-def WMB0_Write_Mesh_Offsets(f, generated_data : WMBDataGenerator):
+def WMB0_Write_Mesh_Offsets(f : BinWriter, generated_data : WMBDataGenerator):
     for ofst in generated_data.mesh_blob.offsets:
-        f.write(struct.pack("<I", ofst))
+        f.write_u32(ofst)
 
-def WMB0_Write_Mesh_Data(f, generated_data : WMBDataGenerator):
+def WMB0_Write_Mesh_Data(f : BinWriter, generated_data : WMBDataGenerator):
     batch_tick = 0
     for i, mesh in enumerate(generated_data.meshes):
         mesh_pos = generated_data.mesh_offset + generated_data.mesh_offsets[i]
         f.seek(mesh_pos)
         print(f"Writing mesh {mesh.name} @ {generated_data.mesh_offset + generated_data.mesh_offsets[i]}")
 
-        f.write(struct.pack("<h", mesh.mesh_id))
-        f.write(struct.pack("<h", mesh.batch_count))
-        f.write(struct.pack("<h", 0))
-        f.write(struct.pack("<h", mesh.bounding_box_infos))
-        f.write(struct.pack("<I", mesh.batch_offset_offset))
-        f.write(struct.pack("<i", mesh.flags))
-        f.write(struct.pack("<i", 0))
-        f.write(struct.pack("<i", 0))
-        f.write(struct.pack("<i", 0))
-        f.write(struct.pack("<i", 0))
+        f.write_s16(mesh.mesh_id)
+        f.write_s16(mesh.batch_count)
+        f.write_s16(0)
+        f.write_s16(mesh.bounding_box_infos)
+        f.write_u32(mesh.batch_offset_offset)
+        f.write_s32(mesh.flags)
+        f.write_s32(0)
+        f.write_s32(0)
+        f.write_s32(0)
+        f.write_s32(0)
         f.write(mesh.name.ljust(32, '\x00').encode('utf-8'))
         if (generated_data.bayo_2):
-            f.write(struct.pack("<3f", *mesh.center))
-            f.write(struct.pack("<f", mesh.height))
-            f.write(struct.pack("<3f", *mesh.corner1))
-            f.write(struct.pack("<3f", *mesh.corner2))
+            f.write_vector3(*mesh.center)
+            f.write_float32(mesh.height)
+            f.write_vector3(*mesh.corner1)
+            f.write_vector3(*mesh.corner2)
 
         else:
-            f.write(struct.pack('<3ff3f3fff', *mesh.exdata))
+            f.write(struct.pack(f.end_flag+'3ff3f3fff', *mesh.exdata))
 
         f.seek(mesh_pos + mesh.batch_offset_offset)
         print(f"|- Writing batch offsets {mesh_pos + mesh.batch_offset_offset}")
         for ofst in mesh.batch_offsets:
-            f.write(struct.pack("<I", ofst))
+            f.write_u32(ofst)
 
         for i, batch in enumerate(mesh.batches):
             
             batch_offset = mesh_pos + mesh.batch_offset_offset + mesh.batch_offsets[i]
             print(f"   |- Writing batch @ {batch_offset}  | {len(batch.indices)} indice(s) @ {batch_offset + batch.indice_offset}")
             f.seek(batch_offset)
-            f.write(struct.pack("<h", batch_tick))
-            f.write(struct.pack("<h", batch.id))
-            f.write(struct.pack("<H", batch.flags))
-            f.write(struct.pack("<h", batch.exmaterial_id))
-            f.write(struct.pack("<B", batch.material_id))
-            f.write(struct.pack("<B", batch.has_bone_refs))
-            f.write(struct.pack("<b", batch.unknownE1))
-            f.write(struct.pack("<b", batch.unknownE2))
-            f.write(struct.pack("<I", batch.vertex_start))
-            f.write(struct.pack("<I", batch.vertex_end))
-            f.write(struct.pack("<I", batch.primitive_type))
-            f.write(struct.pack("<I", batch.indice_offset))
-            f.write(struct.pack("<I", len(batch.indices)))
-            f.write(struct.pack("<I", batch.vertex_offset))
-            f.write(struct.pack("<IIIIIII", 0, 0, 0, 0, 0, 0, 0))
-            f.write(struct.pack("<I", len(batch.required_bones)))
+            f.write_s16(batch_tick)
+            f.write_s16(batch.id)
+            f.write_u16(batch.flags)
+            f.write_s16(batch.exmaterial_id)
+            f.write_u8(batch.material_id)
+            f.write_u8(batch.has_bone_refs)
+            f.write_s8(batch.unknownE1)
+            f.write_s8(batch.unknownE2)
+            f.write_u32(batch.vertex_start)
+            f.write_u32(batch.vertex_end)
+            f.write_u32(batch.primitive_type)
+            f.write_u32(batch.indice_offset)
+            f.write_u32(len(batch.indices))
+            f.write_u32(batch.vertex_offset)
+            f.write(struct.pack(f.end_flag+"IIIIIII", 0, 0, 0, 0, 0, 0, 0))
+            f.write_u32(len(batch.required_bones))
 
             if (USE_LARGE_BONES):
-                f.write(struct.pack("<i", -1))
+                f.write_s32(-1)
                 for i in batch.required_bones:
-                    f.write(struct.pack("<H", i))
+                    f.write_u16(i)
 
             else:
                 for i in batch.required_bones:
-                    f.write(struct.pack("<B", i))
+                    f.write_u8(i)
 
             f.seek(batch_offset + batch.indice_offset)
             for indice in batch.indices:
-                f.write(struct.pack("<H", indice))
+                f.write_u16(indice)
 
             batch_tick+=1
 
 
-def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=False, copy_uv=True, bayonetta_2=False, static_mesh=False, targetCol=None):
+from .. platforms import BIG_ENDIAN_PLATFORMS
+def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=False, copy_uv=True, bayonetta_2=False, static_mesh=False, targetCol=None, platform="PC", gamename="AUTO"):
     global GENERATE_TRANSLATE_TABLE
     global USE_LARGE_BONES
     global OP_INSTANCE
@@ -1278,11 +1337,19 @@ def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=Fa
     OP_INSTANCE = op_inst
     COPY_UV_1_AS_2 = copy_uv
 
+
     print("- BEGIN EXPORT -")
-    f = open(filepath, "wb")
+    
     print("[>] Preparing data...")
 
-    generated_data = WMBDataGenerator(targetCollection=targetCol) # Loosely based off of MGR2Blender
+    generated_data = WMBDataGenerator(targetCollection=targetCol, platform=platform, gamename=gamename) # Loosely based off of MGR2Blender
+    if (generated_data.error_state == 1):
+        return {'CANCELLED'}
+    
+    rf = open(filepath, "wb")
+    f = BinWriter(rf, platform in BIG_ENDIAN_PLATFORMS)
+    if (f.big):
+        print("[>] Exporting Big Endian (Expiremental)")
 
 
     f.seek(generated_data.header_offset)
@@ -1321,7 +1388,7 @@ def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=Fa
     f.seek(align(f.tell(), 32))
     f.write(b"This WMB was brought to you by Gaming With Portals, Raq, and Skyth")
 
-    f.close()
+    f.f.close()
 
     if (not static_mesh):
         if (generated_data.bone_inverse_kinetic_table.enabled):

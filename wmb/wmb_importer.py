@@ -274,18 +274,20 @@ class WMBMaterial:
 class WMBMaterial2:
     
 
-    def __init__(self, file, shader_name, size, ids, tex_ids_to_type):
-        self.matID = struct.unpack("<h", file.read(2))[0]
-        self.flags = struct.unpack("<h", file.read(2))[0]
+    def __init__(self, file : BinReader, shader_name, size, ids, tex_ids_to_type):
+        self.matID = file.read_s16()
+        self.flags = file.read_s16()
         self.texture_data = []
         self.data_data = []
         self.shader_name = shader_name
         self.tex_id_list = ids
         self.id_type_map = tex_ids_to_type
+        self.end_flag = file.end_flag
+
         for i in range(5):
-            self.texture_data.append(struct.unpack("<I", file.read(4))[0])
+            self.texture_data.append(file.read_u32())
         for i in range((size - 24) // 4):
-            self.data_data.append(struct.unpack("<f", file.read(4))[0])
+            self.data_data.append(file.read_float32())
 
 
     def toBPYMaterial(self, material_name, texture_path=""):
@@ -315,7 +317,7 @@ class WMBMaterial2:
                 texture_idx+=1
             else:
                 mat.bayo_data.b2_data.add()
-                mat.bayo_data.b2_data[data_idx].data = struct.unpack("<f", struct.pack("<I", self.texture_data[i]))[0]
+                mat.bayo_data.b2_data[data_idx].data = struct.unpack(self.end_flag+"f", struct.pack(self.end_flag+"I", self.texture_data[i]))[0]
                 mat.bayo_data.b2_data[data_idx].position = i
                 data_idx+=1
             i+=1
@@ -576,6 +578,8 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
 
         model_collection = bpy.data.collections.new(wmb_name)
         model_collection["vertex_format"] = vertexFormat
+        model_collection["num_uv"] = num_uvmaps
+        model_collection["num_color"] = num_colors
 
         wmb_collection.children.link(model_collection)
 
@@ -625,6 +629,12 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
             wf.seek(offsetBoneFlags)
             for i in range(numBones):
                 flag_map[i] = wf.read_u8()
+
+        sym_map = {}
+        if (offsetBoneSymmetries != 0):
+            wf.seek(offsetBoneSymmetries)
+            for i in range(numBones):
+                sym_map[i] = wf.read_s16()
 
         # build skel
         if numBones > 0:
@@ -695,10 +705,12 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 arm_obj["translate_table_3"] = third_level
                 arm_obj["translate_table_size"] = f.tell() - offsetBoneIndexTranslateTable
 
+            def getBlenderBoneName(id):
+                return bone_name_map.get(id, f"bone{id:04}")
 
             edit_bones = {}
             for i in range(numBones):
-                bone_name = bone_name_map.get(i, f"bone{i:04}")
+                bone_name = getBlenderBoneName(i)
                 bone_id = bone_id_map.get(i, -1)
                 bone = arm_data.edit_bones.new(bone_name)
                 bone["local_id"] = i
@@ -708,6 +720,11 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 bone.tail = bone.head + Vector((0.0, 0.05, 0.0))
                 if (offsetBoneFlags != 0):
                     bone["flags"] = flag_map[i]
+                if (offsetBoneSymmetries != 0):
+                    
+                    if (sym_map[i] != -1):
+                        bone["sym_partner"] = getBlenderBoneName(sym_map[i])
+
                 bone["id"] = bone_id
                 edit_bones[i] = bone
 
@@ -731,6 +748,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
             arm_obj["bone_symmetries"] = False
             if (offsetBoneSymmetries != 0):
                 arm_obj["bone_symmetries"] = True
+                arm_obj["regen_symmetries"] = False
 
             arm_obj["inverse_kinematics"] = False
             if (offsetInverseKinematics != 0):
@@ -1021,6 +1039,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 obj = bpy.data.objects.new(object_name, mesh)
 
                 obj["dummy"] = False
+                obj["copy_uv_1_as_2"] = False
                 obj["flags"] = mesh_flags[mesh_index]
                 obj["batch_flags"] = batch_faces[1].flags
 
