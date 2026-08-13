@@ -6,9 +6,9 @@ import os
 import math
 from mathutils import Vector
 import bmesh
-from .wmb_materials import materialSizeDictionary
+from ..wmb_materials import materialSizeDictionary
 from .wmb_bone_names import getBoneName, getBoneNameB2
-from ..structwrapper import BinReader
+from ...structwrapper import BinReader
 
 wmb_material_list = {}
 wmb_texture_list = {}
@@ -503,8 +503,10 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
     def read_half_float(hf_bytes):
         return float(np.frombuffer(hf_bytes, dtype=np.float16)[0])
     
-    addon_dir = os.path.dirname(os.path.abspath(__file__))
-    json_path = os.path.join(addon_dir, "..", "materials.json")
+    current = os.path.dirname(os.path.abspath(__file__))
+    addon_dir = os.path.abspath(os.path.join(current, "..", ".."))
+    json_path = os.path.join(addon_dir, "materials.json")
+    print(os.path.abspath(json_path))
     json_path = os.path.abspath(json_path)  # Normalize it
     material_json = None
     if os.path.isfile(json_path):

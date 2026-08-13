@@ -5,10 +5,10 @@ import bmesh
 from io import BufferedReader
 from mathutils import Vector, Matrix
 import numpy as np
-from .wmb_materials import materialSizeDictionary
+from ..wmb_materials import materialSizeDictionary
 from .wmb_custom_bones import encode_parts_index_no_table as GenerateTranslateTable
 import re
-from ..structwrapper import BinWriter
+from ...structwrapper import BinWriter
 
 GENERATE_TRANSLATE_TABLE = True
 USE_LARGE_BONES = False
@@ -117,7 +117,8 @@ class WMBVertexChunk:
             print(f"[>] Generating vertex data for {obj.name}")
 
             if len(obj.data.uv_layers) != 0:
-                obj.data.calc_tangents()
+                uv_layer = obj.data.uv_layers.get("UVMap2")
+                obj.data.calc_tangents(uvmap=uv_layer.name if uv_layer else "UVMap2")
 
             def get_blenderLoops(self, objOwner):
                 blenderLoops = []
@@ -220,8 +221,6 @@ class WMBVertexChunk:
                 
                 vertex_info.append(normal) # Write normal to buffer
                 
-
-
                 loopTangent = loop.tangent * 127
                 tx = int(loopTangent[0] + 127.0)
                 ty = int(loopTangent[1] + 127.0)
@@ -1321,7 +1320,7 @@ def WMB0_Write_Mesh_Data(f : BinWriter, generated_data : WMBDataGenerator):
             batch_tick+=1
 
 
-from .. platforms import BIG_ENDIAN_PLATFORMS
+from ... platforms import BIG_ENDIAN_PLATFORMS
 def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=False, copy_uv=True, bayonetta_2=False, static_mesh=False, targetCol=None, platform="PC", gamename="AUTO"):
     global GENERATE_TRANSLATE_TABLE
     global USE_LARGE_BONES

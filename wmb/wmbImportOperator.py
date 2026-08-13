@@ -16,8 +16,21 @@ class ImportBayoWMB(bpy.types.Operator, ExportHelper):
     shadow_meshes: bpy.props.BoolProperty(name="Hide Shadow Meshes", default=True)
 
     def execute(self, context):
-        from . import wmb_importer
-        return  wmb_importer.ImportWMB(self.filepath, "", self.bone_names, self.shadow_meshes)
+        f = open(self.filepath, "rb")
+        tag = f.read(4)
+        if (tag == b"WMB\x00" or tag == b"\x00BMW"):
+            from .wmb0 import wmb_importer
+            return  wmb_importer.ImportWMB(self.filepath, "", self.bone_names, self.shadow_meshes)
+        elif (tag == b"WMB3"):
+            from .wmb3 import wmb3_importer
+            return wmb3_importer.ImportWMB3(self.filepath)
+        else:
+            print(f"[!] Unsupport WMB version: {tag.decode()}")
+            return {"CANCELLED"}
+
+
+
+
     
 class ExportBayoWMB(bpy.types.Operator, ExportHelper):
     '''Export WMB Data.'''
@@ -57,6 +70,6 @@ class ExportBayoWMB(bpy.types.Operator, ExportHelper):
     #copy_uv: bpy.props.BoolProperty(name="Use UVMap1 as UVMap2", default=True)
 
     def execute(self, context):
-        from . import wmb_exporter
+        from .wmb0 import wmb_exporter
         return  wmb_exporter.export(self.filepath, self, False, False, self.large_bone, False, platform=self.platform, gamename=self.game_name)
 

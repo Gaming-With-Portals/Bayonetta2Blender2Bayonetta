@@ -66,6 +66,40 @@ class RecalculateObjectIndices(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class GenerateGlobalIDsFromName(bpy.types.Operator):
+    """(In edit mode) given a bone name such as 'bone0004' it will automatically populate the global ID field required for export and physics."""
+    bl_idname = "b2n.geneneratephysids"
+    bl_label = "Generate Global IDs From Selected Bone Names"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        if (bpy.context.object.mode != "EDIT"):
+            ShowMessageBox('You must be in edit mode for this tool to work', 'Bayonetta Tool Info')
+            return {'CANCELLED'} 
+
+        selected_edit_bones = bpy.context.selected_editable_bones
+        successCount = 0
+        failCount = 0
+
+        for bone in selected_edit_bones:
+            if (bone.name.startswith("bone")):
+                try:
+                    identifier = int(bone.name[4:])
+                    bone["id"] = identifier
+                    successCount+=1
+                except:
+                    print(f"[!] Couldn't generate bone {bone.name}, parse error")
+                    failCount+=1
+
+
+            else:
+                print(f"[!] Couldn't generate bone {bone.name}, bad name")
+                failCount+=1
+
+        ShowMessageBox(f"Successfully generated {successCount} bone parameters, {failCount} failed.", 'Bayonetta Tool Info')
+        return {'FINISHED'} 
+
+
 class RemoveUnusedVertexGroups(bpy.types.Operator):
     """Remove all unused vertex groups."""
     bl_idname = "b2n.removeunusedvertexgroups"

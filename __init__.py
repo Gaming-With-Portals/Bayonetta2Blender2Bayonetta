@@ -19,9 +19,9 @@ from .ui.mesh_ui import BayoObjectPanel
 from .utils.util import BayonettaVector4Property
 from .wmb.wmb_materials import BayonettaParameter, BayonettaTexture, Bayonetta2Data, BayonettaExMaterialData
 from .wmb.wmb_materials import BayoMaterialDataProperty
-from .wmb.wmb_mesh_properties import BayoBatchDataProperty
+from .wmb.wmb0.wmb_mesh_properties import BayoBatchDataProperty
 from .scr.scrOperators import ImportBayoSCR, ImportVanqLYT, ExportBayoSCR
-from .utils.utilOperators import RipMeshByUVIslands, RemoveUnusedVertexGroups, RecalculateObjectIndices
+from .utils.utilOperators import RipMeshByUVIslands, RemoveUnusedVertexGroups, RecalculateObjectIndices, GenerateGlobalIDsFromName
 from .mot.motOperators import ImportBayoMOT
 
 from .phys import physPanel
@@ -33,6 +33,13 @@ class BayonettaObjectMenu(bpy.types.Menu):
         self.layout.operator(RecalculateObjectIndices.bl_idname, icon="LINENUMBERS_ON")
         self.layout.operator(RemoveUnusedVertexGroups.bl_idname, icon="GROUP_VERTEX")
         self.layout.operator(RipMeshByUVIslands.bl_idname, icon="UV_ISLANDSEL")
+
+class BayonettaArmatureMenu(bpy.types.Menu):
+    bl_idname = 'ARMATURE_MT_b2b2b'
+    bl_label = 'Bayonetta Tools'
+    def draw(self, context):
+        self.layout.operator(GenerateGlobalIDsFromName.bl_idname, icon="GROUP_BONE")
+
 
 preview_collections = {}
 
@@ -109,7 +116,9 @@ classes = (
     ExportBayoSCR,
     BayoBatchDataProperty,
     RecalculateObjectIndices,
-    ImportBayoMOT
+    ImportBayoMOT,
+    BayonettaArmatureMenu,
+    GenerateGlobalIDsFromName
 )
 
 
@@ -129,6 +138,13 @@ def menu_func_import(self, context):
     raiden_icon = pcoll["bayo"] 
     
     self.layout.menu(IMPORT_BN_MainMenu.bl_idname, icon_value=raiden_icon.icon_id)
+
+def arm_func_utils(self, context):
+    pcoll = preview_collections["main"]
+    raiden_icon = pcoll["bayo"] 
+    
+    self.layout.menu(BayonettaArmatureMenu.bl_idname, icon_value=raiden_icon.icon_id)
+
 
 def menu_func_export(self, context):
     pcoll = preview_collections["main"]
@@ -152,9 +168,11 @@ def register():
 
     physPanel.register()
 
+    
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
     bpy.types.VIEW3D_MT_object.append(menu_func_utils)
+    bpy.types.VIEW3D_MT_edit_armature.append(arm_func_utils)
     bpy.types.Material.bayo_data = bpy.props.PointerProperty(type=BayoMaterialDataProperty)
     bpy.types.Object.bayo_data = bpy.props.PointerProperty(type=BayoBatchDataProperty)
 
@@ -178,6 +196,7 @@ def unregister():
     for cls in classes:
         bpy.utils.unregister_class(cls)
 
+    bpy.types.VIEW3D_MT_edit_armature.remove(arm_func_utils)
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
     bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
     del bpy.types.Material.bayo_data
