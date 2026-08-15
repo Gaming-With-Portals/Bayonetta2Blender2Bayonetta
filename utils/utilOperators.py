@@ -2,9 +2,10 @@ import re
 import bmesh
 import bpy
 from mathutils import Matrix
-
+from bpy_extras.io_utils import ExportHelper, ImportHelper
 from .util import ShowMessageBox
-
+from bpy.props import StringProperty
+import json
 
 class RecalculateObjectIndices(bpy.types.Operator):
     """Re-calculate object indices for ordering (e.g. ##_Body_0)"""
@@ -98,6 +99,96 @@ class GenerateGlobalIDsFromName(bpy.types.Operator):
 
         ShowMessageBox(f"Successfully generated {successCount} bone parameters, {failCount} failed.", 'Bayonetta Tool Info')
         return {'FINISHED'} 
+
+class ExportSymmetryJson(bpy.types.Operator, ExportHelper):
+    bl_idname = "b2b.save_sym_json_file"
+    bl_label = "Export Symmetries as JSON"
+    filter_glob: StringProperty(default="*.json", options={'HIDDEN'})
+    bl_options = {'PRESET'}
+    filename_ext = ".json"
+
+
+    def execute(self, context):
+
+        wmb_collection =  bpy.context.view_layer.layer_collection.children["WMB"]
+        sub_collection = [x for x in wmb_collection.children if x.is_visible][0]
+        arm_obj = sub_collection.collection.objects[0]
+
+
+        outdata = {}
+
+        outdata["version"] = 1
+        outdata["tag"] = "Bayonetta2Blender"
+        outdata["bones"] = []
+
+        for bone in arm_obj.data.bones:
+            bone_dt = {}
+            bone_dt["name"] = bone.name
+            bone_dt["id"] = bone["id"]
+
+            if ("sym_partner" in bone):
+                bone_dt["sym"] = bone["sym_partner"]
+                outdata["bones"].append(bone_dt)
+
+
+        f = open(self.filepath, "wt")
+        json.dump(outdata, f)
+
+        f.close()
+
+        return {"FINISHED"}
+
+
+class ImportSymmetryJson(bpy.types.Operator, ImportHelper):
+    bl_idname = "b2b.load_sym_json_file"
+    bl_label = "Import Symmetries as JSON"
+    filter_glob: StringProperty(default="*.json", options={'HIDDEN'})
+    bl_options = {'PRESET'}
+    filename_ext = ".json"
+
+
+    def execute(self, context):
+
+        wmb_collection =  bpy.context.view_layer.layer_collection.children["WMB"]
+        sub_collection = [x for x in wmb_collection.children if x.is_visible][0]
+        arm_obj = sub_collection.collection.objects[0]
+
+        f = open(self.filepath, "rt")
+        j = json.load(f)
+
+
+        if ("tag" not in j or j["tag"] != "Bayonetta2Blender"):
+            print("[!] Bad tag, corrupt file?")
+            return {"FINISHED"}
+        if (j["version"] > 1):
+            print("[!] Unsupported version! Update your plugin!")
+            return {"FINISHED"}
+
+        bone_count = len(j["bones"])
+        print(f"[>] Importing {bone_count} bones...")
+        print("[>] Mapping...")
+        name_to_sym = {}
+        for bone in j["bones"]:
+            name_to_sym[bone["name"]] = bone["sym"]
+
+        success_count = 0
+
+        print("[>] Writing data...")
+        for bone in arm_obj.data.bones:
+            if (bone.name in name_to_sym):
+                bone["sym_partner"] = name_to_sym[bone.name]
+                success_count+=1
+
+                sym_name = bone["sym_partner"]
+                print(f"[>] Paired {bone.name} with {sym_name}")
+            else:
+                print(f"[!] Couldn't find a pair for {bone.name} (unsymmetrical bone?)")
+
+        print(f"[>] Finished... added {success_count} symmetries")
+
+        f.close()
+
+        return {"FINISHED"}
 
 
 class RemoveUnusedVertexGroups(bpy.types.Operator):

@@ -1213,10 +1213,18 @@ def WMB0_Write_Sym(f : BinWriter, generated_data : WMBDataGenerator):
     if (generated_data.bone_sym.enabled):
         bone_map = generated_data.bone_sym.sym_map
 
+        if not len(bone_map.keys()):
+            print("[!] No sym keys, writing an empty table")
+            for _ in range(generated_data.bone_count):
+                f.write_s16(-1)
+            return
+
         max_index = max(bone_map.keys())
         for bone_index in range(max_index + 1):
             sym_idx = bone_map.get(bone_index, -1)
             f.write_s16(sym_idx)
+
+
 
 def WMB0_Write_Flags(f : BinWriter, generated_data : WMBDataGenerator):
     if (generated_data.bone_flags.enabled):

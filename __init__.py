@@ -20,8 +20,9 @@ from .utils.util import BayonettaVector4Property
 from .wmb.wmb_materials import BayonettaParameter, BayonettaTexture, Bayonetta2Data, BayonettaExMaterialData
 from .wmb.wmb_materials import BayoMaterialDataProperty
 from .wmb.wmb0.wmb_mesh_properties import BayoBatchDataProperty
+from .wmb.mdb import mdb_operators
 from .scr.scrOperators import ImportBayoSCR, ImportVanqLYT, ExportBayoSCR
-from .utils.utilOperators import RipMeshByUVIslands, RemoveUnusedVertexGroups, RecalculateObjectIndices, GenerateGlobalIDsFromName
+from .utils.utilOperators import RipMeshByUVIslands, RemoveUnusedVertexGroups, RecalculateObjectIndices, GenerateGlobalIDsFromName, ExportSymmetryJson, ImportSymmetryJson
 from .mot.motOperators import ImportBayoMOT
 
 from .phys import physPanel
@@ -33,6 +34,8 @@ class BayonettaObjectMenu(bpy.types.Menu):
         self.layout.operator(RecalculateObjectIndices.bl_idname, icon="LINENUMBERS_ON")
         self.layout.operator(RemoveUnusedVertexGroups.bl_idname, icon="GROUP_VERTEX")
         self.layout.operator(RipMeshByUVIslands.bl_idname, icon="UV_ISLANDSEL")
+        self.layout.operator(ExportSymmetryJson.bl_idname, icon="EXPORT")
+        self.layout.operator(ImportSymmetryJson.bl_idname, icon="IMPORT")
 
 class BayonettaArmatureMenu(bpy.types.Menu):
     bl_idname = 'ARMATURE_MT_b2b2b'
@@ -57,6 +60,8 @@ class IMPORT_BN_MainMenu(bpy.types.Menu):
         #self.layout.operator(ImportBayoMOT.bl_idname, text="Animation File (.mot)", icon_value=raiden_icon.icon_id) Not yet
         self.layout.operator(ImportBayoSCR.bl_idname, text="Stage File (.scr)", icon_value=raiden_icon.icon_id)
         #self.layout.operator(ImportVanqLYT.bl_idname, text="Vanquish Stage (.lyt)")
+        self.layout.operator(mdb_operators.ImportMadWorldMDB.bl_idname, text="Model File (MadWorld) (.mdb)", icon_value=raiden_icon.icon_id)
+        
 
 
 class EXPORT_BN_MainMenu(bpy.types.Menu):
@@ -118,7 +123,10 @@ classes = (
     RecalculateObjectIndices,
     ImportBayoMOT,
     BayonettaArmatureMenu,
-    GenerateGlobalIDsFromName
+    GenerateGlobalIDsFromName,
+    mdb_operators.ImportMadWorldMDB,
+    ExportSymmetryJson,
+    ImportSymmetryJson
 )
 
 
