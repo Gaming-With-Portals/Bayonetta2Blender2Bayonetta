@@ -873,6 +873,11 @@ class WMBDataGenerator:
             else:
                 current_highest_id = 0
                 seen_ids = []
+
+
+
+
+
                 for bone in arm_obj.data.bones:
                     if "id" in bone:
                         if (bone["id"] in seen_ids):

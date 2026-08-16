@@ -965,7 +965,17 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                     vertex_offset = batch_info.vertexOffset
 
                 num_bone_maps = wf.read_u32()
-                bone_map = list(wf.read(num_bone_maps))
+
+                chunk_start = wf.tell()
+                if (wf.read_s32() == -1):
+                    print("[!] Large bones!")
+
+                    bone_map = list(wf.read_u16_array(num_bone_maps))
+                else:
+                    wf.seek(chunk_start)
+                    bone_map = list(wf.read(num_bone_maps))
+
+                
                 batch_bone_maps.append(bone_map)
                 batch_faces = []
 
