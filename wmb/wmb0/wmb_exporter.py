@@ -832,6 +832,25 @@ class WMBDataGenerator:
                 bone_name_to_id_map[bone.name] = i # Come up with some ids for local bones, these can be entirely arbitrary'''
 
         if (not EXPORT_AS_STATIC_MESH):
+            if (len(arm_obj.data.bones) > 255):
+                if ("large_bone_override" not in arm_obj):
+                    arm_obj["large_bone_override"] = False
+
+                if (arm_obj["large_bone_override"] == True):
+                    print()
+                    print("[!] We really wanted to switch the exporter to large bones...")
+                    print("[!] This export will probably fail (but it'd be your fault)")
+                else:
+                    global USE_LARGE_BONES # This is a mutiny 
+                    USE_LARGE_BONES = True # I'm your captain now
+
+                    print()
+                    print("[!] Switched the exporter to large bones!")
+                    print("(The export would have surely failed otherwise...)")
+                    print("(...however, if you know better, please check the newly created 'large_bone_override') bool in the Armature")
+                
+
+            
             
             if (self.bayo_2):
                 bones = arm_obj.data.bones

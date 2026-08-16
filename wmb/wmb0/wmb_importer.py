@@ -969,6 +969,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 chunk_start = wf.tell()
                 if (wf.read_s32() == -1):
                     print("[!] Large bones!")
+                    arm_obj["large_bones"] = True
 
                     bone_map = list(wf.read_u16_array(num_bone_maps))
                 else:

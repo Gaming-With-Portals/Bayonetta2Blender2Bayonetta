@@ -69,6 +69,18 @@ class ExportBayoWMB(bpy.types.Operator, ExportHelper):
     large_bone: bpy.props.BoolProperty(name="Use Skyth's Large Bone Patch", default=False)
     #copy_uv: bpy.props.BoolProperty(name="Use UVMap1 as UVMap2", default=True)
 
+    def invoke(self, context, event):
+        if ("WMB" in bpy.context.view_layer.layer_collection.children):
+            wmb_collection = bpy.context.view_layer.layer_collection.children["WMB"]
+            sub_collection = [x for x in wmb_collection.children if x.is_visible][0]
+            arm_obj = sub_collection.collection.objects[0]
+
+            if arm_obj.get("large_bones"):
+                self.large_bone = True
+
+        return super().invoke(context, event)
+
+
     def execute(self, context):
         from .wmb0 import wmb_exporter
         return  wmb_exporter.export(self.filepath, self, False, False, self.large_bone, False, platform=self.platform, gamename=self.game_name)
