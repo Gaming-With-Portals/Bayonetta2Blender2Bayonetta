@@ -118,8 +118,13 @@ class WMBVertexChunk:
 
             if len(obj.data.uv_layers) != 0:
                 uv_layer = obj.data.uv_layers.get("UVMap2")
-                obj.data.calc_tangents(uvmap=uv_layer.name if uv_layer else "UVMap2")
-
+                if uv_layer is None:
+                    uv_layer = obj.data.uv_layers.get("UVMap1")
+                if uv_layer is None:
+                    uv_layer = obj.data.uv_layers.active
+                if uv_layer is not None:
+                    obj.data.calc_tangents(uvmap=uv_layer.name)
+                
             def get_blenderLoops(self, objOwner):
                 blenderLoops = []
                 blenderLoops += objOwner.data.loops
