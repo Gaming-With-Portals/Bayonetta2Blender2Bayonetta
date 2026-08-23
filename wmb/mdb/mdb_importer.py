@@ -65,6 +65,20 @@ def ImportMDB(path):
     print(f.tell())
     num_meshes = f.read_u16()
 
+    pos_div = 1 << position_divisor_bit
+    f.seek(vertex_pos_offset)
+    positions = []
+    for _ in range(num_vertex_pos):
+        positions.append((f.read_s16()/pos_div, f.read_s16()/pos_div, f.read_s16()/pos_div))
+        f.read_s16()
+
+    f.seek(normals_offset)
+    normals = []
+    for _ in range(num_normals):
+        nml = (f.read_s8()/64.0, f.read_s8()/64.0, f.read_s8()/64.0)
+        normals.append(nml)
+
+
 
     print(meshes_offset)
 
@@ -120,9 +134,39 @@ def ImportMDB(path):
         for x in range(index_buffer_count):
             object_name = f"{i}-{name}-{x}"
 
+            remap = {}
+            local_positions = []
+            loop_normals = []
+            faces = []
+
+            ib = index_buffers[x]
+            def local_index(global_idx):
+                if global_idx not in remap:
+                    remap[global_idx] = len(local_positions)
+                    local_positions.append(positions[global_idx])
+                return remap[global_idx]
+
+
+            for tri_start in range(0, len(ib) - 2, 3):
+                tri = ib[tri_start:tri_start+3]
+                i0 = local_index(tri[0][0])
+                i1 = local_index(tri[2][0])
+                i2 = local_index(tri[1][0])
+                faces.append((i0, i1, i2))
+
+                for v in tri:
+                    n_idx = v[1]
+                    loop_normals.append(normals[n_idx])
+
+
             mesh = bpy.data.meshes.new(object_name)
 
             obj = bpy.data.objects.new(object_name, mesh)
+
+            mesh.from_pydata(local_positions, [], faces)
+            mesh.update()
+
+            mesh.normals_split_custom_set(loop_normals)
 
 
             model_collection.objects.link(obj)

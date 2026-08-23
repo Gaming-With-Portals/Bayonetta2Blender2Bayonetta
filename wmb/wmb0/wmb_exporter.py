@@ -1139,7 +1139,7 @@ def WMB0_Write_VertexData(f : BinWriter, generated_data : WMBDataGenerator):
 
         if (generated_data.bayo_2):
             fx, fy, fz = data[1][0], data[1][1], data[1][2]
-            f.write_float32(pack_b2_normal(fx, -fz, fy)) # Normals (Might be wrong for BE)
+            f.write_u32(pack_b2_normal(fx, -fz, fy)) # Normals (Might be wrong for BE)
 
         else:
             nx = int(round(data[1][0] * 127))
