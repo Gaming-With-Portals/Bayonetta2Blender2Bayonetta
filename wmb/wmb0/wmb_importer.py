@@ -741,7 +741,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
             arm_obj.data.display_type = 'STICK'
 
             def bone_group_name(bone_id):
-                return bone_name_map.get(bone_id, f"bone{bone_id:03}")
+                return bone_name_map.get(bone_id, f"bone{bone_id:04}")
 
             arm_obj["bone_flags"] = False
             if (offsetBoneFlags != 0):

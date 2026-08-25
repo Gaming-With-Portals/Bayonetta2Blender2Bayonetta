@@ -889,18 +889,19 @@ class WMBDataGenerator:
                 for bone in dfs_bones:
                     if "id" not in bone:
                         bone["id"] = current_highest_id
+                        print(f"[>] Remapped {bone.name} to ID {current_highest_id}")
                         current_highest_id+=1 
+                        
 
 
                 for i, bone in enumerate(dfs_bones): #enumerate(sorted(dfs_bones, key=lambda x: x["id"])):
                     bone_name_to_id_map[bone.name] = i
+                #for bone in dfs_bones:
+                #    bone_name_to_id_map[bone.name] = bone["id"]
+
             else:
                 current_highest_id = 0
                 seen_ids = []
-
-
-
-
 
                 for bone in arm_obj.data.bones:
                     if "id" in bone:
@@ -919,7 +920,6 @@ class WMBDataGenerator:
                     if "id" not in bone:
                         bone["id"] = current_highest_id
                         current_highest_id+=1 
-
 
                 for i, bone in enumerate(sorted(arm_obj.data.bones, key=lambda x: x["id"])):
                     bone_name_to_id_map[bone.name] = i
