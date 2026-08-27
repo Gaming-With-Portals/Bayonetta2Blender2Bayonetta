@@ -278,7 +278,7 @@ class WMBVertexChunk:
             obj["vertex_end"] = vertex_ticker
         self.total_vertices = vertex_ticker
 
-def getBoneID(boneName):
+def getBoneID(boneName): # LOCAL ID BTW
     return bone_name_to_id_map[boneName] # later is now, and this is important!
 
     #return int(boneName[4:]) # This will be important later
@@ -416,6 +416,8 @@ class WMBBoneSymmetries:
                     else:
                         self.sym_map[getBoneID(bone.name)] = -1
 
+        num_bones = len(arm_obj.data.bones)
+        self.sym_array = [self.sym_map.get(i, -1) for i in range(num_bones)]
             
             
 
@@ -1260,10 +1262,13 @@ def WMB0_Write_Sym(f : BinWriter, generated_data : WMBDataGenerator):
                 f.write_s16(-1)
             return
 
-        max_index = max(bone_map.keys())
+        '''max_index = max(bone_map.keys())
         for bone_index in range(max_index + 1):
             sym_idx = bone_map.get(bone_index, -1)
-            f.write_s16(sym_idx)
+            f.write_s16(sym_idx)'''
+
+        for sym in generated_data.bone_sym.sym_array:
+            f.write_s16(sym)
 
 
 
