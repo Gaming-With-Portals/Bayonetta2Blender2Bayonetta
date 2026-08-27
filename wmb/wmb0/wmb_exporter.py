@@ -19,6 +19,8 @@ BAYONETTA_2 = False
 EXPORT_AS_STATIC_MESH = False
 REGEN_SYM = False
 
+USE_EX_DATA = True
+
 bone_name_to_id_map = {}
 
 def align(offset, alignment):
@@ -411,6 +413,8 @@ class WMBBoneSymmetries:
                 for bone in arm_obj.data.bones:
                     if ("sym_partner" in bone):
                         self.sym_map[getBoneID(bone.name)] = getBoneID(bone["sym_partner"])
+                    else:
+                        self.sym_map[getBoneID(bone.name)] = -1
 
             
             
@@ -768,6 +772,10 @@ class WMBDataGenerator:
         if ("b2" not in arm_obj):
             arm_obj["b2"] = False # Assume not b2
 
+
+        self.use_ex_data = sub_collection.collection.get("use_ex_data", True)
+        self.flag_e = sub_collection.collection.get("flag_e", 0)
+
         if (gamename == "BAYO1" and arm_obj["b2"]):
             reportError("[!] Cannot export a WMB0+ mesh in the WMB0 style, please change your game target")
             self.error_state = 1
@@ -954,11 +962,13 @@ class WMBDataGenerator:
         offset_ticker += self.vertex_data.total_vertices * 32
         offset_ticker = align(offset_ticker, ALIGN_TARGET)
 
-        self.offset_ex_vertexes = offset_ticker
+        if (self.use_ex_data):
+            self.offset_ex_vertexes = offset_ticker
 
-        offset_ticker += self.vertex_data.total_vertices * self.vertex_data.exvertex_size
-        offset_ticker = align(offset_ticker, ALIGN_TARGET)
-
+            offset_ticker += self.vertex_data.total_vertices * self.vertex_data.exvertex_size
+            offset_ticker = align(offset_ticker, ALIGN_TARGET)
+        else:
+            self.offset_ex_vertexes = 0
 
 
         ## -- BONE CHUNK --
@@ -1092,8 +1102,8 @@ def WMB0_Write_HDR(f : BinWriter, generated_data : WMBDataGenerator):
     f.write_s32(generated_data.vertex_data.total_vertices)
     f.write_s8(generated_data.vertex_data.num_mapping)
     f.write_s8(generated_data.vertex_data.num_color)
-    f.write_s16(0)
-    f.write_u32(0)
+    f.write_u16(generated_data.flag_e)
+    f.write_u32(0) # TODO: Support
     f.write_u32(generated_data.offset_vertexes)
     f.write_u32(generated_data.offset_ex_vertexes)
     f.write_u32(0)
@@ -1183,13 +1193,15 @@ def WMB0_Write_VertexData(f : BinWriter, generated_data : WMBDataGenerator):
             f.write_packed_bytes_unsigned(*data[3]) # Bone Indexes
             f.write_packed_bytes_unsigned(*data[4]) # Bone Weights
 
-
-    f.seek(generated_data.offset_ex_vertexes)
-    for data in generated_data.vertex_data.exvertex_infos:
-        f.write_packed_bytes_unsigned(*data[0])
-        if (generated_data.vertex_data.num_mapping == 2):
-            f.write_float16(data[1][0])
-            f.write_float16(data[1][1])
+    if (generated_data.use_ex_data):
+        f.seek(generated_data.offset_ex_vertexes)
+        for data in generated_data.vertex_data.exvertex_infos:
+            f.write_packed_bytes_unsigned(*data[0])
+            if (generated_data.vertex_data.num_mapping == 2):
+                f.write_float16(data[1][0])
+                f.write_float16(data[1][1])
+    else:
+        print("[!] Skipping ExData write! Enable the property in the model collection if this is an error.")
 
 def WMB0_Write_BoneParents(f : BinWriter, generated_data : WMBDataGenerator):
     bone_map = generated_data.bone_parents.bone_map

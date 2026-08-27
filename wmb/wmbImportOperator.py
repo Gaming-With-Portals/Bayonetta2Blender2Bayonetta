@@ -83,5 +83,5 @@ class ExportBayoWMB(bpy.types.Operator, ExportHelper):
 
     def execute(self, context):
         from .wmb0 import wmb_exporter
-        return  wmb_exporter.export(self.filepath, self, False, False, self.large_bone, False, platform=self.platform, gamename=self.game_name)
+        return  wmb_exporter.export(self.filepath, self, False, True, self.large_bone, False, platform=self.platform, gamename=self.game_name)
 

@@ -539,7 +539,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
         num_vertices =wf.read_u32()
         num_uvmaps = wf.read_u8()
         num_colors = wf.read_u8()
-        wf.advance(2)
+        flag_e = wf.read_u16()
         offset_positions = wf.read_u32()
         offset_vertices = wf.read_u32()
         offset_vertices_extra = wf.read_u32()
@@ -580,6 +580,8 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
 
         model_collection = bpy.data.collections.new(wmb_name)
         model_collection["vertex_format"] = vertexFormat
+        model_collection["use_ex_data"] = (offset_vertices_extra != 0)
+        model_collection["flag_e"] = flag_e
         model_collection["num_uv"] = num_uvmaps
         model_collection["num_color"] = num_colors
 
