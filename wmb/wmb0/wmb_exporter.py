@@ -22,6 +22,7 @@ REGEN_SYM = False
 USE_EX_DATA = True
 
 bone_name_to_id_map = {}
+bone_name_to_global_id_map = {}
 
 def align(offset, alignment):
     return offset if offset % alignment == 0 else offset + (alignment - (offset % alignment))
@@ -283,6 +284,9 @@ def getBoneID(boneName): # LOCAL ID BTW
 
     #return int(boneName[4:]) # This will be important later
 
+def getGlobalBoneID(boneName):
+    return bone_name_to_global_id_map[boneName] # probably throw an error
+
 
 
 class WMBWeightDataVertexChunk:
@@ -352,7 +356,7 @@ class WMBBoneIndexTranslateTable:
             translate_table_food = []
 
             for bone in sorted(arm_obj.data.bones, key=lambda x: x["id"]):
-                translate_table_food.append((bone["id"], getBoneID(bone.name)))
+                translate_table_food.append((bone["id"], getBoneID(bone.name))) # Global, local
 
 
             self.data = GenerateTranslateTable(translate_table_food)
@@ -408,11 +412,12 @@ class WMBBoneSymmetries:
 
 
                         if abs(-pos[0] - pos_2[0]) < 0.0001:
-                            self.sym_map[getBoneID(bone.name)] = getBoneID(bone_2.name)
+                            self.sym_map[getBoneID(bone.name)] = getGlobalBoneID(bone_2.name)
             else:
                 for bone in arm_obj.data.bones:
                     if ("sym_partner" in bone):
-                        self.sym_map[getBoneID(bone.name)] = getBoneID(bone["sym_partner"])
+                        #self.sym_map[getBoneID(bone.name)] = getBoneID(bone["sym_partner"]) # TODO: Kill the Steel Arcana
+                        self.sym_map[getBoneID(bone.name)] = getGlobalBoneID(bone["sym_partner"])
                     else:
                         self.sym_map[getBoneID(bone.name)] = -1
 
@@ -752,6 +757,11 @@ class WMBExMaterialInfo():
 
 class WMBDataGenerator:
     def __init__(self, colName="WMB", targetCollection=None, platform="PC", gamename="AUTO"):
+        global bone_name_to_id_map
+        global bone_name_to_global_id_map
+        bone_name_to_id_map = {} # Clear name-to-id
+        bone_name_to_global_id_map = {} # Clear global
+
         #ALIGN_TARGET = 64
         ALIGN_TARGET = 0x20
 
@@ -933,6 +943,11 @@ class WMBDataGenerator:
 
                 for i, bone in enumerate(sorted(arm_obj.data.bones, key=lambda x: x["id"])):
                     bone_name_to_id_map[bone.name] = i
+
+            print("[>] Making global map...")
+            for bone in arm_obj.data.bones:
+                bone_name_to_global_id_map[bone.name] = bone["id"]
+
 
         offset_ticker = 0
         self.header_offset = 0
