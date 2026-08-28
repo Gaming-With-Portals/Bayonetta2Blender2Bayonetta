@@ -24,6 +24,15 @@ USE_EX_DATA = True
 bone_name_to_id_map = {}
 bone_name_to_global_id_map = {}
 
+def getMeshIDFromName(name : str):
+    return name.split("-")[0]
+
+def getBatchIDFromName(name : str):
+    return name.split("-")[-1]
+
+def getNameFromName(name : str):
+    return "-".join(name.split("-")[1:-1])
+
 def align(offset, alignment):
     return offset if offset % alignment == 0 else offset + (alignment - (offset % alignment))
 
@@ -559,9 +568,9 @@ class WMBMeshBlob():
         for obj in getObjectChildren(arm_obj):
             if obj.type != 'MESH':
                 continue
-            name_parts = obj.name.split("-")
-            if (len(name_parts) == 3):
-                if (int(decimalFixup(name_parts[2])) == 0):
+            
+            if (3 == 3): # TODO: Remove
+                if (int(decimalFixup(getBatchIDFromName(obj.name))) == 0):
                     self.mesh_count+=1
 
 class WMBBatch():
@@ -693,10 +702,10 @@ class WMBMesh():
             obj["flags"] = -2147483648
 
 
-        name_parts = obj.name.split("-")
-        self.name = name_parts[1]
+
+        self.name = getNameFromName(obj.name)
         self.exdata = obj["data"]
-        self.mesh_id = int(name_parts[0])
+        self.mesh_id = int(getMeshIDFromName(obj.name))
         bpy_batches = []
         self.batches = []
 
@@ -709,9 +718,9 @@ class WMBMesh():
         for obj in getObjectChildren(arm_obj):
             if obj.type != 'MESH':
                 continue
-            name_parts = obj.name.split("-")
-            if (int(name_parts[0]) == self.mesh_id):
-                bpy_batches.append((int(decimalFixup(name_parts[2])), obj))
+            
+            if (int(getMeshIDFromName(obj.name)) == self.mesh_id):
+                bpy_batches.append((int(decimalFixup(getBatchIDFromName(obj.name))), obj))
 
         bpy_batches.sort(key=lambda x: x[0])
         bpy_batches = [obj for _, obj in bpy_batches]
@@ -1096,9 +1105,8 @@ class WMBDataGenerator:
         )
 
         for obj in sorted_children:
-            name_parts = obj.name.split("-")
-            if len(name_parts) == 3:
-                if int(decimalFixup(name_parts[2])) == 0:
+            if 3 == 3: # TODO: Remove
+                if int(decimalFixup(getBatchIDFromName(obj.name))) == 0:
                     mesh_offset_ticker = align(mesh_offset_ticker, 32)
                     mesh_dat = WMBMesh(arm_obj, obj, bone_reference_dictionary, material_remap, self.bayo_2)
                     self.mesh_blob.offsets.append(mesh_offset_ticker)
