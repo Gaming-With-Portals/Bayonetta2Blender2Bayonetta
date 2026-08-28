@@ -67,6 +67,7 @@ class ExportBayoWMB(bpy.types.Operator, ExportHelper):
 
     #btt: bpy.props.BoolProperty(name="Generate Bone Index Translate Table", default=True)
     large_bone: bpy.props.BoolProperty(name="Use Skyth's Large Bone Patch", default=False)
+    keep_refs: bpy.props.BoolProperty(name="Keep Original Bone Refs", default=False)
     #copy_uv: bpy.props.BoolProperty(name="Use UVMap1 as UVMap2", default=True)
 
     def invoke(self, context, event):
@@ -83,5 +84,5 @@ class ExportBayoWMB(bpy.types.Operator, ExportHelper):
 
     def execute(self, context):
         from .wmb0 import wmb_exporter
-        return  wmb_exporter.export(self.filepath, self, False, True, self.large_bone, False, platform=self.platform, gamename=self.game_name)
+        return  wmb_exporter.export(self.filepath, self, self.keep_refs, True, self.large_bone, False, platform=self.platform, gamename=self.game_name)
 

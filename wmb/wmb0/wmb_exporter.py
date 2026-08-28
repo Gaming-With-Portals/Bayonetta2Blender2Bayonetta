@@ -162,6 +162,12 @@ class WMBVertexChunk:
             if (ex_color_layer is None):
                 print("[!] No ExColors found!")
 
+            if ("bone_refs" in obj):
+                print("[>] Preloading Bone Refs...")
+                for ref in obj["bone_refs"]:
+                    if (ref not in ref_table[obj.name]):
+                        ref_table[obj.name][ref] = bone_counter
+                        bone_counter += 1
             
 
             previousIndex = -1
@@ -622,13 +628,11 @@ class WMBBatch():
         self.primitive_type = 4
         
         batch_ref_table = bone_ref_table[obj.name]
-        print(batch_ref_table)
-        if ("bone_refs" in obj):
+        '''if ("bone_refs" in obj):
             for ref in obj["bone_refs"]:
                 if (ref not in bone_ref_table):
                     print(f"[!] Added missing bone ref 0x{ref:02}!")
-                    batch_ref_table[ref] = len(batch_ref_table)
-        print(batch_ref_table)
+                    batch_ref_table[ref] = len(batch_ref_table)'''
 
         self.unknownE1 = obj.get("unknownE1", 0)
         self.unknownE2 = obj.get("unknownE2", 0)
@@ -1415,6 +1419,7 @@ def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=Fa
     global EXCEPT_AFTER_GENERATION
     global COPY_UV_1_AS_2
     global EXPORT_AS_STATIC_MESH
+    global ALL_BONE_REFS
 
     
     EXPORT_AS_STATIC_MESH = static_mesh
@@ -1422,6 +1427,7 @@ def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=Fa
     GENERATE_TRANSLATE_TABLE = btt
     OP_INSTANCE = op_inst
     COPY_UV_1_AS_2 = copy_uv
+    ALL_BONE_REFS = all_bone_refs
 
 
     print("- BEGIN EXPORT -")
