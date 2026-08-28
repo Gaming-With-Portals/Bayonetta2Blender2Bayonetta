@@ -19,6 +19,9 @@ BAYONETTA_2 = False
 EXPORT_AS_STATIC_MESH = False
 REGEN_SYM = False
 
+ALL_BONE_REFS = True
+
+
 USE_EX_DATA = True
 
 bone_name_to_id_map = {}
@@ -619,6 +622,13 @@ class WMBBatch():
         self.primitive_type = 4
         
         batch_ref_table = bone_ref_table[obj.name]
+        print(batch_ref_table)
+        if ("bone_refs" in obj):
+            for ref in obj["bone_refs"]:
+                if (ref not in bone_ref_table):
+                    print(f"[!] Added missing bone ref 0x{ref:02}!")
+                    batch_ref_table[ref] = len(batch_ref_table)
+        print(batch_ref_table)
 
         self.unknownE1 = obj.get("unknownE1", 0)
         self.unknownE2 = obj.get("unknownE2", 0)

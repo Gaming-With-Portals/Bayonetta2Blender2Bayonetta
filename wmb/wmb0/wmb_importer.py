@@ -1066,6 +1066,9 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 obj["vertex_end"] = batch_faces[1].vertexEnd
 
 
+                obj["bone_refs"] = bone_map
+
+
                 model_collection.objects.link(obj)
                 obj.rotation_euler = (math.radians(90), 0, 0)
                 if (bayo_2):
