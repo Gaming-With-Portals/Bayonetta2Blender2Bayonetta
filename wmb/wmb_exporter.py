@@ -257,6 +257,10 @@ class WMBVertexChunk:
                     else:
                         if (exMap is not None):
                             ex_vertex_info.append(exMap)
+
+                if (EXPORT_AS_STATIC_MESH):
+                    if (self.num_mapping == 2):
+                        vertex_info.append(mainUV if obj["copy_uv_1_as_2"] else exMap)
                     
                     
 
@@ -1148,8 +1152,8 @@ def WMB0_Write_VertexData(f : BinWriter, generated_data : WMBDataGenerator):
             if (generated_data.vertex_data.num_mapping == 2):
                 #uv_bytes = float_to_half_bytes(data[1][0]) + float_to_half_bytes(1 - data[1][1])
                 #f.write(uv_bytes)
-                f.write_float16(data[1][0])
-                f.write_float16(data[1][1])
+                f.write_float16(data[6][0])
+                f.write_float16(data[6][1])
 
         else:
             f.write_packed_bytes_unsigned(*data[3]) # Bone Indexes
