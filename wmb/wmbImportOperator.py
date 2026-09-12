@@ -16,8 +16,21 @@ class ImportBayoWMB(bpy.types.Operator, ExportHelper):
     shadow_meshes: bpy.props.BoolProperty(name="Hide Shadow Meshes", default=True)
 
     def execute(self, context):
-        from . import wmb_importer
-        return  wmb_importer.ImportWMB(self.filepath, "", self.bone_names, self.shadow_meshes)
+        f = open(self.filepath, "rb")
+        tag = f.read(4)
+        if (tag == b"WMB\x00" or tag == b"\x00BMW"):
+            from .wmb0 import wmb_importer
+            return  wmb_importer.ImportWMB(self.filepath, "", self.bone_names, self.shadow_meshes)
+        elif (tag == b"WMB3"):
+            from .wmb3 import wmb3_importer
+            return wmb3_importer.ImportWMB3(self.filepath)
+        else:
+            print(f"[!] Unsupport WMB version: {tag.decode()}")
+            return {"CANCELLED"}
+
+
+
+
     
 class ExportBayoWMB(bpy.types.Operator, ExportHelper):
     '''Export WMB Data.'''
@@ -54,9 +67,22 @@ class ExportBayoWMB(bpy.types.Operator, ExportHelper):
 
     #btt: bpy.props.BoolProperty(name="Generate Bone Index Translate Table", default=True)
     large_bone: bpy.props.BoolProperty(name="Use Skyth's Large Bone Patch", default=False)
+    keep_refs: bpy.props.BoolProperty(name="Keep Original Bone Refs", default=False)
     #copy_uv: bpy.props.BoolProperty(name="Use UVMap1 as UVMap2", default=True)
 
+    def invoke(self, context, event):
+        if ("WMB" in bpy.context.view_layer.layer_collection.children):
+            wmb_collection = bpy.context.view_layer.layer_collection.children["WMB"]
+            sub_collection = [x for x in wmb_collection.children if x.is_visible][0]
+            arm_obj = sub_collection.collection.objects[0]
+
+            if arm_obj.get("large_bones"):
+                self.large_bone = True
+
+        return super().invoke(context, event)
+
+
     def execute(self, context):
-        from . import wmb_exporter
-        return  wmb_exporter.export(self.filepath, self, False, False, self.large_bone, False, platform=self.platform, gamename=self.game_name)
+        from .wmb0 import wmb_exporter
+        return  wmb_exporter.export(self.filepath, self, self.keep_refs, True, self.large_bone, False, platform=self.platform, gamename=self.game_name)
 

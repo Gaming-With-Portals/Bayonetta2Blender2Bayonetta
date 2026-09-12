@@ -6,9 +6,9 @@ import os
 import math
 from mathutils import Vector
 import bmesh
-from .wmb_materials import materialSizeDictionary
+from ..wmb_materials import materialSizeDictionary
 from .wmb_bone_names import getBoneName, getBoneNameB2
-from ..structwrapper import BinReader
+from ...structwrapper import BinReader
 
 wmb_material_list = {}
 wmb_texture_list = {}
@@ -503,8 +503,10 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
     def read_half_float(hf_bytes):
         return float(np.frombuffer(hf_bytes, dtype=np.float16)[0])
     
-    addon_dir = os.path.dirname(os.path.abspath(__file__))
-    json_path = os.path.join(addon_dir, "..", "materials.json")
+    current = os.path.dirname(os.path.abspath(__file__))
+    addon_dir = os.path.abspath(os.path.join(current, "..", ".."))
+    json_path = os.path.join(addon_dir, "materials.json")
+    print(os.path.abspath(json_path))
     json_path = os.path.abspath(json_path)  # Normalize it
     material_json = None
     if os.path.isfile(json_path):
@@ -537,7 +539,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
         num_vertices =wf.read_u32()
         num_uvmaps = wf.read_u8()
         num_colors = wf.read_u8()
-        wf.advance(2)
+        flag_e = wf.read_u16()
         offset_positions = wf.read_u32()
         offset_vertices = wf.read_u32()
         offset_vertices_extra = wf.read_u32()
@@ -578,6 +580,8 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
 
         model_collection = bpy.data.collections.new(wmb_name)
         model_collection["vertex_format"] = vertexFormat
+        model_collection["use_ex_data"] = (offset_vertices_extra != 0)
+        model_collection["flag_e"] = flag_e
         model_collection["num_uv"] = num_uvmaps
         model_collection["num_color"] = num_colors
 
@@ -739,7 +743,7 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
             arm_obj.data.display_type = 'STICK'
 
             def bone_group_name(bone_id):
-                return bone_name_map.get(bone_id, f"bone{bone_id:03}")
+                return bone_name_map.get(bone_id, f"bone{bone_id:04}")
 
             arm_obj["bone_flags"] = False
             if (offsetBoneFlags != 0):
@@ -963,7 +967,18 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                     vertex_offset = batch_info.vertexOffset
 
                 num_bone_maps = wf.read_u32()
-                bone_map = list(wf.read(num_bone_maps))
+
+                chunk_start = wf.tell()
+                if (wf.read_s32() == -1):
+                    print("[!] Large bones!")
+                    arm_obj["large_bones"] = True
+
+                    bone_map = list(wf.read_u16_array(num_bone_maps))
+                else:
+                    wf.seek(chunk_start)
+                    bone_map = list(wf.read(num_bone_maps))
+
+                
                 batch_bone_maps.append(bone_map)
                 batch_faces = []
 
@@ -1049,6 +1064,9 @@ def ImportWMB(filepath, textures, use_custom_bone_names, hide_shadow_meshes, bay
                 obj["data"] = mesh_datas[mesh_index]
                 obj["vertex_start"] = batch_faces[1].vertexStart
                 obj["vertex_end"] = batch_faces[1].vertexEnd
+
+
+                obj["bone_refs"] = bone_map
 
 
                 model_collection.objects.link(obj)

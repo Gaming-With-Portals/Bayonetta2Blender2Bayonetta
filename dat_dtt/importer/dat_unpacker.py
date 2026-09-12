@@ -4,21 +4,21 @@ import sys
 
 from ...utils.util import saveDatInfo
 from ...utils.ioUtils import read_int32, read_uint32, read_uint16
-
+from ...structwrapper import BinReader
 
 def create_dir(dirpath):
     if not os.path.exists(dirpath):
         os.makedirs(dirpath)
 
-def read_header(fp):
-    Magic = fp.read(4)
+def read_header(br : BinReader):
+    Magic = br.read(4)
     if list(Magic) == [68, 65, 84, 0]:
-        FileCount = read_int32(fp)
-        FileTableOffset = read_int32(fp)
-        ExtensionTableOffset = read_int32(fp)
-        NameTableOffset = read_int32(fp)
-        SizeTableOffset = read_int32(fp)
-        hashMapOffset = read_int32(fp)
+        FileCount = br.read_u32()
+        FileTableOffset = br.read_u32()
+        ExtensionTableOffset = br.read_u32()
+        NameTableOffset = br.read_u32()
+        SizeTableOffset = br.read_u32()
+        hashMapOffset = br.read_u32()
 #         print(
 # '''FileCount: %08x
 # FileTableOffset: %08x
@@ -34,20 +34,20 @@ def read_header(fp):
         print('[-] wrong magic number detected')
         return False
 
-def get_fileinfo(fp, index, FileTableOffset, ExtensionTableOffset, NameTableOffset, SizeTableOffset):
-    fp.seek(FileTableOffset + index * 4)
-    FileOffset = read_int32(fp)
-    fp.seek(ExtensionTableOffset + index * 4)
-    Extension = fp.read(4).decode('utf-8')
-    fp.seek(SizeTableOffset + index * 4)
-    Size = read_int32(fp)
-    fp.seek(NameTableOffset)
-    FilenameAlignment = read_int32(fp)
+def get_fileinfo(br : BinReader, index, FileTableOffset, ExtensionTableOffset, NameTableOffset, SizeTableOffset):
+    br.seek(FileTableOffset + index * 4)
+    FileOffset = br.read_u32()
+    br.seek(ExtensionTableOffset + index * 4)
+    Extension = br.read(4).decode('utf-8')
+    br.seek(SizeTableOffset + index * 4)
+    Size = br.read_u32()
+    br.seek(NameTableOffset)
+    FilenameAlignment = br.read_u32()
     i = 0
     while i < index:
-        if list(fp.read(FilenameAlignment))[FilenameAlignment-1] == 0:
+        if list(br.read(FilenameAlignment))[FilenameAlignment-1] == 0:
             i += 1
-    Filename = fp.read(256).split(b'\x00')[0].decode('ascii')
+    Filename = br.read(256).split(b'\x00')[0].decode('ascii')
 #     print(
 # '''
 # FileIndex: %d
@@ -131,15 +131,27 @@ def extract_hashes(fp, extract_dir, FileCount, hashMapOffset, fileNamesOffset, f
         fileIndices.append(read_uint16(fp))
 
 def main(filename, extract_dir, ROOT_DIR):
+
     with open(filename,"rb") as fp:
-        headers = read_header(fp)
+        br = BinReader(fp)
+        br.seek(0x4)
+        if (br.read_u32() > 50000):
+            br.big = True
+            br.update_endianess_flag()
+            print("[!] Big Endian!")
+
+        br.seek(0)
+
+
+        headers = read_header(br)
+
         if headers:
             FileCount, FileTableOffset, ExtensionTableOffset,NameTableOffset,SizeTableOffset,hashMapOffset = headers
 
             extractedFiles = 0
             for i in range(FileCount):
                 extract_dir_sub = ''
-                index,Filename,FileOffset,Size,Extension = get_fileinfo(fp, i, FileTableOffset,ExtensionTableOffset, NameTableOffset,SizeTableOffset)
+                index,Filename,FileOffset,Size,Extension = get_fileinfo(br, i, FileTableOffset,ExtensionTableOffset, NameTableOffset,SizeTableOffset)
                 if extract_dir != '':
                     extract_dir_sub = os.path.join(extract_dir, filename.replace(ROOT_DIR ,''))
                     extract_file(fp, Filename, FileOffset, Size, extract_dir_sub)
