@@ -133,7 +133,7 @@ def ImportData(only_extract, filepath, transform=None, isStageSubmesh=False):
         # WMB
         wmb_filepath = os.path.join(extract_dir, filename_without_extension + wmb_ext, wmb_files[0])
         print("WMB Path: " + wmb_filepath)
-        from ...wmb import wmb_importer
+        from ...wmb.wmb0 import wmb_importer
         if (isStageSubmesh):
             wmb_importer.ImportWMB(wmb_filepath, os.path.join(extract_dir, filename_without_extension + '.dat', "textures"), True, True, target_col="LYT")
         else:

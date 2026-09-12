@@ -7,6 +7,7 @@ Import/Export WMB (version 0) models straight from Blender.
 | Bayonetta 2 | Import/Export | Import | Planned |
 | Vanquish | Import/Export | Import (.LYT) | No ([Requires Havok](https://www.youtube.com/watch?v=lrSaXzGGM8U)) |
 | Anarchy Reigns | Untested | Untested | Planned |
+| Starfox Zero | Import/Export | Untested | Planned |
 | Wonderful 101 | Import/Export | Untested | Planned |
 | The Legend of Korra | Untested | Untested | Planned |
 | Transformers: Devastation | Import/Export | Untested | Planned |

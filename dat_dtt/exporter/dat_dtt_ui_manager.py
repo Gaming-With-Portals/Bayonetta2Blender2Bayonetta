@@ -226,7 +226,7 @@ class ExportAll(bpy.types.Operator):
         datFilePath = os.path.join(datDttExportDir, datFileName)
         dttFilePath = os.path.join(datDttExportDir, dttFileName)
 
-        from ...wmb.exporter import wmb_exporter
+        from ...wmb.wmb0.exporter import wmb_exporter
         if exportSteps.useWmbStep:
             print("Exporting WMB")
             if exportSteps.triangulateMeshes:

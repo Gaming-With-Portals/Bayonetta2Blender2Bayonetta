@@ -5,10 +5,10 @@ import bmesh
 from io import BufferedReader
 from mathutils import Vector, Matrix
 import numpy as np
-from .wmb_materials import materialSizeDictionary
+from ..wmb_materials import materialSizeDictionary
 from .wmb_custom_bones import encode_parts_index_no_table as GenerateTranslateTable
 import re
-from ..structwrapper import BinWriter
+from ...structwrapper import BinWriter
 
 GENERATE_TRANSLATE_TABLE = True
 USE_LARGE_BONES = False
@@ -19,7 +19,22 @@ BAYONETTA_2 = False
 EXPORT_AS_STATIC_MESH = False
 REGEN_SYM = False
 
+ALL_BONE_REFS = True
+
+
+USE_EX_DATA = True
+
 bone_name_to_id_map = {}
+bone_name_to_global_id_map = {}
+
+def getMeshIDFromName(name : str):
+    return name.split("-")[0]
+
+def getBatchIDFromName(name : str):
+    return name.split("-")[-1]
+
+def getNameFromName(name : str):
+    return "-".join(name.split("-")[1:-1])
 
 def align(offset, alignment):
     return offset if offset % alignment == 0 else offset + (alignment - (offset % alignment))
@@ -117,8 +132,14 @@ class WMBVertexChunk:
             print(f"[>] Generating vertex data for {obj.name}")
 
             if len(obj.data.uv_layers) != 0:
-                obj.data.calc_tangents()
-
+                uv_layer = obj.data.uv_layers.get("UVMap2")
+                if uv_layer is None:
+                    uv_layer = obj.data.uv_layers.get("UVMap1")
+                if uv_layer is None:
+                    uv_layer = obj.data.uv_layers.active
+                if uv_layer is not None:
+                    obj.data.calc_tangents(uvmap=uv_layer.name)
+                
             def get_blenderLoops(self, objOwner):
                 blenderLoops = []
                 blenderLoops += objOwner.data.loops
@@ -141,6 +162,12 @@ class WMBVertexChunk:
             if (ex_color_layer is None):
                 print("[!] No ExColors found!")
 
+            if ("bone_refs" in obj):
+                print("[>] Preloading Bone Refs...")
+                for ref in obj["bone_refs"]:
+                    if (ref not in ref_table[obj.name]):
+                        ref_table[obj.name][ref] = bone_counter
+                        bone_counter += 1
             
 
             previousIndex = -1
@@ -220,8 +247,6 @@ class WMBVertexChunk:
                 
                 vertex_info.append(normal) # Write normal to buffer
                 
-
-
                 loopTangent = loop.tangent * 127
                 tx = int(loopTangent[0] + 127.0)
                 ty = int(loopTangent[1] + 127.0)
@@ -276,10 +301,13 @@ class WMBVertexChunk:
             obj["vertex_end"] = vertex_ticker
         self.total_vertices = vertex_ticker
 
-def getBoneID(boneName):
+def getBoneID(boneName): # LOCAL ID BTW
     return bone_name_to_id_map[boneName] # later is now, and this is important!
 
     #return int(boneName[4:]) # This will be important later
+
+def getGlobalBoneID(boneName):
+    return bone_name_to_global_id_map[boneName] # probably throw an error
 
 
 
@@ -350,7 +378,7 @@ class WMBBoneIndexTranslateTable:
             translate_table_food = []
 
             for bone in sorted(arm_obj.data.bones, key=lambda x: x["id"]):
-                translate_table_food.append((bone["id"], getBoneID(bone.name)))
+                translate_table_food.append((bone["id"], getBoneID(bone.name))) # Global, local
 
 
             self.data = GenerateTranslateTable(translate_table_food)
@@ -406,12 +434,17 @@ class WMBBoneSymmetries:
 
 
                         if abs(-pos[0] - pos_2[0]) < 0.0001:
-                            self.sym_map[getBoneID(bone.name)] = getBoneID(bone_2.name)
+                            self.sym_map[getBoneID(bone.name)] = getGlobalBoneID(bone_2.name)
             else:
                 for bone in arm_obj.data.bones:
                     if ("sym_partner" in bone):
-                        self.sym_map[getBoneID(bone.name)] = getBoneID(bone["sym_partner"])
+                        #self.sym_map[getBoneID(bone.name)] = getBoneID(bone["sym_partner"]) # TODO: Kill the Steel Arcana
+                        self.sym_map[getBoneID(bone.name)] = getGlobalBoneID(bone["sym_partner"])
+                    else:
+                        self.sym_map[getBoneID(bone.name)] = -1
 
+        num_bones = len(arm_obj.data.bones)
+        self.sym_array = [self.sym_map.get(i, -1) for i in range(num_bones)]
             
             
 
@@ -548,9 +581,9 @@ class WMBMeshBlob():
         for obj in getObjectChildren(arm_obj):
             if obj.type != 'MESH':
                 continue
-            name_parts = obj.name.split("-")
-            if (len(name_parts) == 3):
-                if (int(decimalFixup(name_parts[2])) == 0):
+            
+            if (3 == 3): # TODO: Remove
+                if (int(decimalFixup(getBatchIDFromName(obj.name))) == 0):
                     self.mesh_count+=1
 
 class WMBBatch():
@@ -599,6 +632,11 @@ class WMBBatch():
         self.primitive_type = 4
         
         batch_ref_table = bone_ref_table[obj.name]
+        '''if ("bone_refs" in obj):
+            for ref in obj["bone_refs"]:
+                if (ref not in bone_ref_table):
+                    print(f"[!] Added missing bone ref 0x{ref:02}!")
+                    batch_ref_table[ref] = len(batch_ref_table)'''
 
         self.unknownE1 = obj.get("unknownE1", 0)
         self.unknownE2 = obj.get("unknownE2", 0)
@@ -682,10 +720,10 @@ class WMBMesh():
             obj["flags"] = -2147483648
 
 
-        name_parts = obj.name.split("-")
-        self.name = name_parts[1]
+
+        self.name = getNameFromName(obj.name)
         self.exdata = obj["data"]
-        self.mesh_id = int(name_parts[0])
+        self.mesh_id = int(getMeshIDFromName(obj.name))
         bpy_batches = []
         self.batches = []
 
@@ -698,9 +736,9 @@ class WMBMesh():
         for obj in getObjectChildren(arm_obj):
             if obj.type != 'MESH':
                 continue
-            name_parts = obj.name.split("-")
-            if (int(name_parts[0]) == self.mesh_id):
-                bpy_batches.append((int(decimalFixup(name_parts[2])), obj))
+            
+            if (int(getMeshIDFromName(obj.name)) == self.mesh_id):
+                bpy_batches.append((int(decimalFixup(getBatchIDFromName(obj.name))), obj))
 
         bpy_batches.sort(key=lambda x: x[0])
         bpy_batches = [obj for _, obj in bpy_batches]
@@ -746,6 +784,11 @@ class WMBExMaterialInfo():
 
 class WMBDataGenerator:
     def __init__(self, colName="WMB", targetCollection=None, platform="PC", gamename="AUTO"):
+        global bone_name_to_id_map
+        global bone_name_to_global_id_map
+        bone_name_to_id_map = {} # Clear name-to-id
+        bone_name_to_global_id_map = {} # Clear global
+
         #ALIGN_TARGET = 64
         ALIGN_TARGET = 0x20
 
@@ -767,6 +810,10 @@ class WMBDataGenerator:
 
         if ("b2" not in arm_obj):
             arm_obj["b2"] = False # Assume not b2
+
+
+        self.use_ex_data = sub_collection.collection.get("use_ex_data", True)
+        self.flag_e = sub_collection.collection.get("flag_e", 0)
 
         if (gamename == "BAYO1" and arm_obj["b2"]):
             reportError("[!] Cannot export a WMB0+ mesh in the WMB0 style, please change your game target")
@@ -837,6 +884,25 @@ class WMBDataGenerator:
                 bone_name_to_id_map[bone.name] = i # Come up with some ids for local bones, these can be entirely arbitrary'''
 
         if (not EXPORT_AS_STATIC_MESH):
+            if (len(arm_obj.data.bones) > 255):
+                if ("large_bone_override" not in arm_obj):
+                    arm_obj["large_bone_override"] = False
+
+                if (arm_obj["large_bone_override"] == True):
+                    print()
+                    print("[!] We really wanted to switch the exporter to large bones...")
+                    print("[!] This export will probably fail (but it'd be your fault)")
+                else:
+                    global USE_LARGE_BONES # This is a mutiny 
+                    USE_LARGE_BONES = True # I'm your captain now
+
+                    print()
+                    print("[!] Switched the exporter to large bones!")
+                    print("(The export would have surely failed otherwise...)")
+                    print("(...however, if you know better, please check the newly created 'large_bone_override') bool in the Armature")
+                
+
+            
             
             if (self.bayo_2):
                 bones = arm_obj.data.bones
@@ -870,14 +936,20 @@ class WMBDataGenerator:
                 for bone in dfs_bones:
                     if "id" not in bone:
                         bone["id"] = current_highest_id
+                        print(f"[>] Remapped {bone.name} to ID {current_highest_id}")
                         current_highest_id+=1 
+                        
 
 
                 for i, bone in enumerate(dfs_bones): #enumerate(sorted(dfs_bones, key=lambda x: x["id"])):
                     bone_name_to_id_map[bone.name] = i
+                #for bone in dfs_bones:
+                #    bone_name_to_id_map[bone.name] = bone["id"]
+
             else:
                 current_highest_id = 0
                 seen_ids = []
+
                 for bone in arm_obj.data.bones:
                     if "id" in bone:
                         if (bone["id"] in seen_ids):
@@ -896,9 +968,13 @@ class WMBDataGenerator:
                         bone["id"] = current_highest_id
                         current_highest_id+=1 
 
-
                 for i, bone in enumerate(sorted(arm_obj.data.bones, key=lambda x: x["id"])):
                     bone_name_to_id_map[bone.name] = i
+
+            print("[>] Making global map...")
+            for bone in arm_obj.data.bones:
+                bone_name_to_global_id_map[bone.name] = bone["id"]
+
 
         offset_ticker = 0
         self.header_offset = 0
@@ -930,11 +1006,13 @@ class WMBDataGenerator:
         offset_ticker += self.vertex_data.total_vertices * 32
         offset_ticker = align(offset_ticker, ALIGN_TARGET)
 
-        self.offset_ex_vertexes = offset_ticker
+        if (self.use_ex_data):
+            self.offset_ex_vertexes = offset_ticker
 
-        offset_ticker += self.vertex_data.total_vertices * self.vertex_data.exvertex_size
-        offset_ticker = align(offset_ticker, ALIGN_TARGET)
-
+            offset_ticker += self.vertex_data.total_vertices * self.vertex_data.exvertex_size
+            offset_ticker = align(offset_ticker, ALIGN_TARGET)
+        else:
+            self.offset_ex_vertexes = 0
 
 
         ## -- BONE CHUNK --
@@ -1045,9 +1123,8 @@ class WMBDataGenerator:
         )
 
         for obj in sorted_children:
-            name_parts = obj.name.split("-")
-            if len(name_parts) == 3:
-                if int(decimalFixup(name_parts[2])) == 0:
+            if 3 == 3: # TODO: Remove
+                if int(decimalFixup(getBatchIDFromName(obj.name))) == 0:
                     mesh_offset_ticker = align(mesh_offset_ticker, 32)
                     mesh_dat = WMBMesh(arm_obj, obj, bone_reference_dictionary, material_remap, self.bayo_2)
                     self.mesh_blob.offsets.append(mesh_offset_ticker)
@@ -1068,8 +1145,8 @@ def WMB0_Write_HDR(f : BinWriter, generated_data : WMBDataGenerator):
     f.write_s32(generated_data.vertex_data.total_vertices)
     f.write_s8(generated_data.vertex_data.num_mapping)
     f.write_s8(generated_data.vertex_data.num_color)
-    f.write_s16(0)
-    f.write_u32(0)
+    f.write_u16(generated_data.flag_e)
+    f.write_u32(0) # TODO: Support
     f.write_u32(generated_data.offset_vertexes)
     f.write_u32(generated_data.offset_ex_vertexes)
     f.write_u32(0)
@@ -1120,7 +1197,7 @@ def WMB0_Write_VertexData(f : BinWriter, generated_data : WMBDataGenerator):
 
         if (generated_data.bayo_2):
             fx, fy, fz = data[1][0], data[1][1], data[1][2]
-            f.write_float32(pack_b2_normal(fx, -fz, fy)) # Normals (Might be wrong for BE)
+            f.write_u32(pack_b2_normal(fx, -fz, fy)) # Normals (Might be wrong for BE)
 
         else:
             nx = int(round(data[1][0] * 127))
@@ -1159,13 +1236,15 @@ def WMB0_Write_VertexData(f : BinWriter, generated_data : WMBDataGenerator):
             f.write_packed_bytes_unsigned(*data[3]) # Bone Indexes
             f.write_packed_bytes_unsigned(*data[4]) # Bone Weights
 
-
-    f.seek(generated_data.offset_ex_vertexes)
-    for data in generated_data.vertex_data.exvertex_infos:
-        f.write_packed_bytes_unsigned(*data[0])
-        if (generated_data.vertex_data.num_mapping == 2):
-            f.write_float16(data[1][0])
-            f.write_float16(data[1][1])
+    if (generated_data.use_ex_data):
+        f.seek(generated_data.offset_ex_vertexes)
+        for data in generated_data.vertex_data.exvertex_infos:
+            f.write_packed_bytes_unsigned(*data[0])
+            if (generated_data.vertex_data.num_mapping == 2):
+                f.write_float16(data[1][0])
+                f.write_float16(data[1][1])
+    else:
+        print("[!] Skipping ExData write! Enable the property in the model collection if this is an error.")
 
 def WMB0_Write_BoneParents(f : BinWriter, generated_data : WMBDataGenerator):
     bone_map = generated_data.bone_parents.bone_map
@@ -1218,10 +1297,21 @@ def WMB0_Write_Sym(f : BinWriter, generated_data : WMBDataGenerator):
     if (generated_data.bone_sym.enabled):
         bone_map = generated_data.bone_sym.sym_map
 
-        max_index = max(bone_map.keys())
+        if not len(bone_map.keys()):
+            print("[!] No sym keys, writing an empty table")
+            for _ in range(generated_data.bone_count):
+                f.write_s16(-1)
+            return
+
+        '''max_index = max(bone_map.keys())
         for bone_index in range(max_index + 1):
             sym_idx = bone_map.get(bone_index, -1)
-            f.write_s16(sym_idx)
+            f.write_s16(sym_idx)'''
+
+        for sym in generated_data.bone_sym.sym_array:
+            f.write_s16(sym)
+
+
 
 def WMB0_Write_Flags(f : BinWriter, generated_data : WMBDataGenerator):
     if (generated_data.bone_flags.enabled):
@@ -1325,7 +1415,7 @@ def WMB0_Write_Mesh_Data(f : BinWriter, generated_data : WMBDataGenerator):
             batch_tick+=1
 
 
-from .. platforms import BIG_ENDIAN_PLATFORMS
+from ... platforms import BIG_ENDIAN_PLATFORMS
 def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=False, copy_uv=True, bayonetta_2=False, static_mesh=False, targetCol=None, platform="PC", gamename="AUTO"):
     global GENERATE_TRANSLATE_TABLE
     global USE_LARGE_BONES
@@ -1333,6 +1423,7 @@ def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=Fa
     global EXCEPT_AFTER_GENERATION
     global COPY_UV_1_AS_2
     global EXPORT_AS_STATIC_MESH
+    global ALL_BONE_REFS
 
     
     EXPORT_AS_STATIC_MESH = static_mesh
@@ -1340,6 +1431,7 @@ def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=Fa
     GENERATE_TRANSLATE_TABLE = btt
     OP_INSTANCE = op_inst
     COPY_UV_1_AS_2 = copy_uv
+    ALL_BONE_REFS = all_bone_refs
 
 
     print("- BEGIN EXPORT -")
