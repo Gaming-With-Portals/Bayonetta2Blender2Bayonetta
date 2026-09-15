@@ -4,6 +4,10 @@ import os
 import numpy as np
 import bpy
 import math
+from mathutils import Vector
+from .mgrr_bone_ids import wmb4_bonenames
+
+bone_name_map = {}
 
 DEVASTATION_MDL = False
 VERTEX_FORMAT = 0
@@ -26,8 +30,6 @@ class WMB3VertexGroup:
         self.vertexExSize = f.read_u32()
         f.advance(8)
         self.numVertexes = f.read_u32()
-        if (not DEVASTATION_MDL):
-            self.vertexFlags = f.read_u32()
         
         self.indexBufferOffset = f.read_u32()
         self.numIndexes = f.read_u32()
@@ -70,7 +72,7 @@ class WMB3VertexGroup:
         vertexAttributes = []
         exVertexAttributes = []
 
-        if (not DEVASTATION_MDL):
+        if (False):
             if self.vertexFlags == 0xe:
                 # CORE
                 vertexAttributes.append(('position', 'f4', 3))
@@ -219,7 +221,7 @@ class WMB3VertexGroup:
             self.vertexExData = np.fromfile(exVertexReader.f, dt, self.numVertexes)
         if (indexOffset != 0):
             indexReader.seek(indexOffset)
-            if (not DEVASTATION_MDL):
+            if (False):
                 if (wmb_flags & 0x8):
                     self.indexes = indexReader.read_u32_array(self.numIndexes)
                 else:
@@ -234,7 +236,7 @@ class WMB3VertexGroup:
 class WMB3Batch:
     def __init__(self, f : BinReader):
         self.vertexGroupIndex = f.read_u32()
-        if (not DEVASTATION_MDL):
+        if (False):
             self.boneSetIndex = f.read_u32()
         else:
             self.boneSetIndex = 0
@@ -243,7 +245,7 @@ class WMB3Batch:
         self.indexStart = f.read_u32()
         self.numVertexes = f.read_u32()
         self.numIndexes = f.read_u32()
-        if (not DEVASTATION_MDL):
+        if (False):
             self.numPrims = f.read_u32() # indexes divided by 3
         else:
             self.numPrims = self.numIndexes*3 # Generate
@@ -252,7 +254,7 @@ class WMB3Mesh:
     def __init__(self, f : BinReader):
         self.nameOffset = f.read_u32()
         self.boundingBox = (f.read_f32_vector3(), f.read_f32_vector3())
-        if (DEVASTATION_MDL):
+        if (True):
             self.groups = []
             for _ in range(5):
                 self.groups.append((f.read_u32(), f.read_u32()))
@@ -261,7 +263,7 @@ class WMB3Mesh:
         self.offsetMaterials = f.read_u32()
         self.numMaterials = f.read_u32()
 
-        if (not DEVASTATION_MDL):
+        if (False):
             self.offsetBones = f.read_u32()
             self.numBones = f.read_u32()
 
@@ -270,7 +272,7 @@ class WMB3Mesh:
         self.name = read_cstring(f.f)
         f.seek(self.offsetMaterials)
         self.materials = f.read_s16_array(self.numMaterials)
-        if (not DEVASTATION_MDL):
+        if (False):
             f.seek(self.offsetBones)
             self.bones = f.read_s16_array(self.numBones)
         else:
@@ -281,12 +283,11 @@ class WMB3Mesh:
 
 class WMB3BatchInfo:
     def __init__(self, f : BinReader):
-        self.vertexGroupID = f.read_s32()
-        self.meshIndex = f.read_s32()
-        self.materialIndex = f.read_s32()
-        self.colTreeNodeIndex = f.read_s32()
-        self.meshMatPairIndex = f.read_s32()
-        self.indexToUnknown1 = f.read_s32()
+        self.batchIndex = f.read_u32()
+        self.meshIndex = f.read_u32()
+        self.materialIndex = f.read_u16()
+        self.boneSetIndex = f.read_u16()
+        self.unknown = f.read_u32()
 
 
 
@@ -339,7 +340,23 @@ class WME3File:
         self.fp = filepath
 
 
+class WMB3Bone:
+    def __init__(self, f : BinReader):
+        self.globalID = f.read_u16()
+        self.localID = f.read_u16()
+        self.parentIndex = f.read_s16()
+        f.advance(2)
+        self.localPos = f.read_f32_vector3()
+        self.worldPos = f.read_f32_vector3()
 
+class WMB3BoneRemap:
+    def __init__(self, f : BinReader):
+        self.offsetBoneSet = f.read_u32()
+        self.numBoneIndexes = f.read_u32()
+        pos = f.tell()
+        f.seek(self.offsetBoneSet)
+        self.boneRemap = f.read_u8_array(self.numBoneIndexes)
+        f.seek(pos)
 
 
 def ImportWMB3(filepath, target_col="WMB"):
@@ -379,67 +396,36 @@ def ImportWMB3(filepath, target_col="WMB"):
 
     if (version == 65536):
         devastation = True
-
-
-    if (not devastation):
-        unknownA = f.read_u32()
-        flags = f.read_s16()
-        referenceBone = f.read_s16()
-        bb_xyz = f.read_f32_vector3()
-        bb_uvw = f.read_f32_vector3()
-
-        offsetBones = f.read_u32()
-        numBones = f.read_u32()
-        offsetBoneIndexTranslateTable = f.read_u32()
-        boneTranslateTableSize = f.read_u32()
-        offsetVertexGroups = f.read_u32()
-        numVertexGroups = f.read_u32()
-        offsetBatches = f.read_u32()
-        numBatches = f.read_u32()
-        offsetLods = f.read_u32()
-        numLods = f.read_u32()
-        offsetColTreeNodes = f.read_u32()
-        numColTreeNodes = f.read_u32()
-        offsetBoneMap = f.read_u32()
-        boneMapSize = f.read_u32()
-        offsetBoneSets = f.read_u32()
-        numBoneSets = f.read_u32()
-        offsetMaterials = f.read_u32()
-        numMaterials = f.read_u32()
-        offsetMeshes = f.read_u32()
-        numMeshes = f.read_u32()
-        offsetMeshMaterial = f.read_u32()
-        numMeshMaterial = f.read_u32()
-        offsetUnknown0 = f.read_u32()
-        numUnknown0 = f.read_u32()
     else:
-        unknownA = f.read_u32()
-        vertexFormat = f.read_u32()
-        unknownCount = f.read_s16()
-        unknownTerminator = f.read_s16()
-        bb_xyz = f.read_f32_vector3()
-        bb_uvw = f.read_f32_vector3()
+        return
 
-        offsetVertexGroups = f.read_u32()
-        numVertexGroups = f.read_u32()
-        offsetBatches = f.read_u32()
-        numBatches = f.read_u32()
-        offsetBatchGroups = f.read_u32()
-        offsetBones = f.read_u32()
-        numBones = f.read_u32()
-        offsetBoneIndexTranslateTable = f.read_u32()
-        boneTranslateTableSize = f.read_u32()
-        offsetBoneSets = f.read_u32()
-        numBoneSets = f.read_u32()
-        offsetMaterials = f.read_u32()
-        numMaterials = f.read_u32()
-        offsetTextureIDs = f.read_u32()
-        numTextureIDs = f.read_u32()
-        offsetMeshes = f.read_u32()
-        numMeshes = f.read_u32()
+    unknownA = f.read_u32()
+    vertexFormat = f.read_u32()
+    unknownCount = f.read_s16()
+    unknownTerminator = f.read_s16()
+    bb_xyz = f.read_f32_vector3()
+    bb_uvw = f.read_f32_vector3()
 
-        VERTEX_FORMAT = vertexFormat
+    offsetVertexGroups = f.read_u32()
+    numVertexGroups = f.read_u32()
+    offsetBatches = f.read_u32()
+    numBatches = f.read_u32()
+    offsetBatchGroups = f.read_u32()
+    offsetBones = f.read_u32()
+    numBones = f.read_u32()
+    offsetBoneIndexTranslateTable = f.read_u32()
+    boneTranslateTableSize = f.read_u32()
+    offsetBoneSets = f.read_u32()
+    numBoneSets = f.read_u32()
+    offsetMaterials = f.read_u32()
+    numMaterials = f.read_u32()
+    offsetTextureIDs = f.read_u32()
+    numTextureIDs = f.read_u32()
+    offsetMeshes = f.read_u32()
+    numMeshes = f.read_u32()
 
+
+    VERTEX_FORMAT = vertexFormat
 
 
     wmb_name = os.path.splitext(os.path.basename(filepath))[0]
@@ -456,13 +442,8 @@ def ImportWMB3(filepath, target_col="WMB"):
         
     wmb_collection.children.link(model_collection)
 
-    DEVASTATION_MDL = devastation
     
 
-    if numBones > 0:
-        arm_data = bpy.data.armatures.new(wmb_name)
-        arm_obj = bpy.data.objects.new(wmb_name, arm_data)
-        model_collection.objects.link(arm_obj)
 
 
     print("[>] Reading vertex groups...")
@@ -501,81 +482,79 @@ def ImportWMB3(filepath, target_col="WMB"):
         meshes.append(WMB3Mesh(f))
 
 
-    if (not DEVASTATION_MDL):
-        print("[>] Reading LODs...")
-        f.seek(offsetLods)
-        lods = []
-        for i in range(numLods):
-            lods.append(WMB3LOD(f))
-    else:
-        print("[!] Skipping LOD Read!")
+    print("[>] Reading bone sets...")
+    bone_groups = []
+    f.seek(offsetBoneSets)
+    for i in range(numBoneSets):
+        bone_groups.append(WMB3BoneRemap(f))
+
+    print("[>] Reading bones...")
+    bones = []
+    f.seek(offsetBones)
+    for i in range(numBones):
+        bones.append(WMB3Bone(f))
+
+    
+    if numBones > 0:
+        arm_data = bpy.data.armatures.new(wmb_name)
+        arm_obj = bpy.data.objects.new(wmb_name, arm_data)
+        model_collection.objects.link(arm_obj)
+
+        bpy.context.view_layer.objects.active = arm_obj
+        bpy.ops.object.mode_set(mode='EDIT')
 
 
-    print("[>] Generating geometry...")
-    '''for i, batch in enumerate(batches):
-        print(f"[>] Batch {i+1}/{len(batches)}")
-        vtxGroup = vertexGroups[batch.vertexGroupIndex]'''
+
+        def getBlenderBoneName(id):
+            return bone_name_map.get(id, f"bone{id:04}")
+
+        edit_bones = {}
+        for i, data_bone in enumerate(bones):
+            bone_name = getBlenderBoneName(data_bone.globalID)
+
+            bone = arm_data.edit_bones.new(bone_name)
+            bone["local_id"] = data_bone.localID
+
+            raw = data_bone.worldPos
+            converted = Vector((raw[0], -raw[2], raw[1]))
+
+            bone.head = converted
+            bone.tail = bone.head + Vector((0.0, 0.05, 0.0))
+
+            edit_bones[i] = bone
+
+        for i, data_bone in enumerate(bones):
+            if data_bone.parentIndex != -1:
+                edit_bones[i].parent = edit_bones[data_bone.parentIndex]
+                edit_bones[i].use_connect = False
+
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+        arm_obj.show_in_front = True
+        arm_obj.data.display_type = 'STICK'
 
 
-    if (not DEVASTATION_MDL):
-        for lod in lods:
-            lodBatches = batches[lod.batchStart:lod.batchStart+lod.numBatchInfo]
-            print(f"[>] Loading {lod.name} from {len(lodBatches)} related batches")
-            
-            for i, batch in enumerate(lodBatches):
-                batchInfo = lod.batchInfos[i]
-                vtxGroup = vertexGroups[batch.vertexGroupIndex] # It doesn't matter if you use batch or batchindex for this, they are the same
-                mesh = meshes[batchInfo.meshIndex]
 
-                batchVertexes = vtxGroup.vertexData[batch.vertexStart:batch.vertexStart+batch.numVertexes]
-                batchExVertexes = vtxGroup.vertexExData[batch.vertexStart:batch.vertexStart+batch.numVertexes]
-                batchIndexes = vtxGroup.indexes[batch.indexStart:batch.indexStart+batch.numIndexes]
-
-                object_name = f"{batchInfo.meshIndex}-{mesh.name}-{i}-{lod.lodLevel}"
-
-                mesh = bpy.data.meshes.new(object_name)
-                obj = bpy.data.objects.new(object_name, mesh)
-                obj.rotation_euler = (math.radians(90), 0, 0)
-                model_collection.objects.link(obj)
-
-                mesh.vertices.add(batch.numVertexes)
-                mesh.vertices.foreach_set('co', batchVertexes['position'].astype(np.float32).ravel())
+    print("[>] Reading Devastation Data...")
+    # Devastation Importer
+    f.seek(offsetBatchGroups)
+    batchGroups = []
+    for _ in range(5):
+        batchGroups.append((f.read_u32(), f.read_u32())) # Group Offset, Count
 
 
-                numTris = batch.numIndexes // 3
-                mesh.loops.add(numTris * 3)
-                mesh.polygons.add(numTris)
+    batchGroupBatches = []
+    for group in batchGroups:
+        batchDatas = []
+        f.seek(group[0])
+        for _ in range(group[1]):
+            batchDatas.append((f.read_u32(), f.read_u32(), f.read_u16(), f.read_u16(), f.read_u32()))
 
-                mesh.polygons.foreach_set('loop_start', np.arange(0, numTris * 3, 3))
-                mesh.polygons.foreach_set('loop_total', np.full(numTris, 3))
-                mesh.loops.foreach_set('vertex_index', batchIndexes)
+        batchGroupBatches.append(batchDatas)
 
+        print(f"[>] Batch Group: {len(batchDatas)}")
 
-                mesh.update()
-
-                if (lod.lodLevel != 0):
-                    obj.hide_set(True)
-    else:
-        print("[>] Reading Devastation Data...")
-        # Devastation Importer
-        f.seek(offsetBatchGroups)
-        batchGroups = []
-        for _ in range(5):
-            batchGroups.append((f.read_u32(), f.read_u32())) # Group Offset, Count
-
-
-        batchGroupBatches = []
-        for group in batchGroups:
-            batchDatas = []
-            f.seek(group[0])
-            for _ in range(group[1]):
-                batchDatas.append((f.read_u32(), f.read_u32(), f.read_u16(), f.read_u16(), f.read_u32()))
-
-            batchGroupBatches.append(batchDatas)
-
-            print(f"[>] Batch Group: {len(batchDatas)}")
-
-        for meshID, dataMesh in enumerate(meshes):
+    for meshID, dataMesh in enumerate(meshes):
             for groupID, group in enumerate(dataMesh.groups):
                 print(f"[>] Reading mesh group {group[0]}, {group[1]}")
                 if (group[1] == 0):
@@ -616,7 +595,56 @@ def ImportWMB3(filepath, target_col="WMB"):
                     mesh.loops.foreach_set('vertex_index', batchIndexes)
 
 
+
+
                     mesh.update()
+
+                    uv_layer = mesh.uv_layers.new(name="UVMap")
+                    batch_uvs = batchVertexes['uv_1'].astype(np.float32)
+
+                    loop_vert_idx = np.empty(numTris * 3, dtype=np.int32)
+                    mesh.loops.foreach_get('vertex_index', loop_vert_idx)
+
+                    loop_uvs = batch_uvs[loop_vert_idx]
+                    loop_uvs[:, 1] = 1.0 - loop_uvs[:, 1]
+
+                    uv_layer.data.foreach_set('uv', loop_uvs.ravel())
+
+                    
+                    if numBones > 0:
+                        obj.parent = arm_obj
+                        obj.matrix_parent_inverse = arm_obj.matrix_world.inverted()
+
+                        arm_mod = obj.modifiers.new(name="Armature", type='ARMATURE')
+                        arm_mod.object = arm_obj
+
+                        boneSetIndex = batchData[3]
+                        ex_names = batchExVertexes.dtype.names or ()
+
+                        if boneSetIndex < len(bone_groups) and 'bone_index' in ex_names and 'bone_weight' in ex_names:
+                            boneRemap = bone_groups[boneSetIndex].boneRemap
+                            vg_for_local = {}
+                            for local_idx, global_bone_idx in enumerate(boneRemap):
+                                if global_bone_idx >= len(bones):
+                                    continue
+                                bone_name = getBlenderBoneName(bones[global_bone_idx].globalID)
+                                vg_for_local[local_idx] = obj.vertex_groups.get(bone_name) or obj.vertex_groups.new(name=bone_name)
+
+                            bone_idx_arr = batchExVertexes['bone_index']
+                            bone_wgt_arr = batchExVertexes['bone_weight']
+
+                            for vi in range(batch.numVertexes):
+                                for k in range(4):
+                                    w = int(bone_wgt_arr[vi][k])
+                                    if w == 0:
+                                        continue
+                                    local_bone = int(bone_idx_arr[vi][k])
+                                    vg = vg_for_local.get(local_bone)
+                                    if vg is None:
+                                        continue
+                                    vg.add([vi], w / 255.0, 'REPLACE')
+                        else:
+                            print(f"[!] No bone/weight data for batch {batchIndx} (boneSetIndex {boneSetIndex}), skipping skinning")
 
 
                 

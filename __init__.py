@@ -56,11 +56,11 @@ class IMPORT_BN_MainMenu(bpy.types.Menu):
         vanquish_icon = pcoll["vanq"] 
    
         self.layout.operator(ImportNierDat.bl_idname, text="Archive File (.dat, .dtt)", icon_value=raiden_icon.icon_id)
-        self.layout.operator(ImportBayoWMB.bl_idname, text="Model File (.wmb)", icon_value=raiden_icon.icon_id)
+        self.layout.operator(ImportBayoWMB.bl_idname, text="Devastation Model File (.wmb)", icon_value=raiden_icon.icon_id)
         #self.layout.operator(ImportBayoMOT.bl_idname, text="Animation File (.mot)", icon_value=raiden_icon.icon_id) Not yet
-        self.layout.operator(ImportBayoSCR.bl_idname, text="Stage File (.scr)", icon_value=raiden_icon.icon_id)
+        #self.layout.operator(ImportBayoSCR.bl_idname, text="Stage File (.scr)", icon_value=raiden_icon.icon_id)
         #self.layout.operator(ImportVanqLYT.bl_idname, text="Vanquish Stage (.lyt)")
-        self.layout.operator(mdb_operators.ImportMadWorldMDB.bl_idname, text="Model File (MadWorld) (.mdb)", icon_value=raiden_icon.icon_id)
+        #self.layout.operator(mdb_operators.ImportMadWorldMDB.bl_idname, text="Model File (MadWorld) (.mdb)", icon_value=raiden_icon.icon_id)
         
 
 
