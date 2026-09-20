@@ -12,6 +12,7 @@ from ..wmb_materials import materialSizeDictionary
 from .wmb_custom_bones import encode_parts_index_no_table as GenerateTranslateTable
 import re
 from ...structwrapper import BinWriter
+from ... platforms import BIG_ENDIAN_PLATFORMS
 
 # /-- Generator Cofig --/
 GENERATE_TRANSLATE_TABLE = True
@@ -25,12 +26,15 @@ REGEN_SYM = False
 
 ALL_BONE_REFS = True
 
+WRITE_MAIN_COLORS = True
 
 USE_EX_DATA = True
 
 
 # /-- Other Config --/
 DO_PROFILE = True
+
+MAX_WEIGHTS = 4
 
 
 bone_name_to_id_map = {}
@@ -105,391 +109,304 @@ def blenderColorToBayo(color):
     b = int(color[2]*255)
     a = int(color[3]*255)
     return (r, g, b, a)
-
+def _fetch(collection, attr, count, width=1, dtype=np.float32):
+    out = np.empty(count * width, dtype=dtype)
+    collection.foreach_get(attr, out)
+    return out.reshape(count, width) if width > 1 else out
+ 
+ 
+def _fetch_uv(layer, n_loops):
+    """Per-loop UVs with V flipped, as float64 (matches the old Python-double math).
+    None if the layer doesn't exist."""
+    if layer is None:
+        return None
+    uv = _fetch(layer.data, "uv", n_loops, 2).astype(np.float64)
+    uv[:, 1] = 1.0 - uv[:, 1]
+    return uv
+ 
+ 
+def _fetch_color(layer, n_loops):
+    if layer is None:
+        return None
+    return _fetch(layer.data, "color", n_loops, 4)
+ 
+ 
+# ---------------------------------------------------------------------------
+# Packers: vectorized versions of what your old code + WMB0_Write_VertexData did
+# ---------------------------------------------------------------------------
+def _color_to_bytes(c):
+    # blenderColorToBayo: int(c*255) -> truncation, not rounding
+    return np.clip(c.astype(np.float64) * 255.0, 0, 255).astype(np.uint8)
+ 
+ 
+def _pack_tangent(tan, bitangent_sign):
+    # old: loop.tangent * 127 (mathutils Vector = float32 math), then int(x + 127.0)
+    t = (tan * np.float32(127.0)).astype(np.float64) + 127.0
+    out = np.empty((len(tan), 4), dtype=np.uint8)
+    out[:, :3] = np.clip(t, 0, 255).astype(np.uint8)
+    out[:, 3] = np.where(bitangent_sign < 0, 0xFF, 0)
+    return out
+ 
+ 
+def _pack_normal_b1(n):
+    """n = raw Blender loop normals (bx, by, bz).
+    Old writer bytes (signed): [0, bz, by, bx]  (its X Z -Y swizzle was undone at write time)."""
+    q = np.clip(np.rint(n.astype(np.float64) * 127.0), -127, 127).astype(np.int8)
+    out = np.zeros((len(n), 4), dtype=np.int8)
+    out[:, 1] = q[:, 2]
+    out[:, 2] = q[:, 1]
+    out[:, 3] = q[:, 0]
+    return out
+ 
+ 
+def _pack_normal_b2(n):
+    """10:10:10 packed u32, x in the low bits. Same as pack_b2_normal(bx, by, bz)."""
+    mag = (1 << 9) - 1
+    q = np.clip((n.astype(np.float64) * mag).astype(np.int32), -mag, mag) & 0x3FF
+    q = q.astype(np.uint32)
+    return (q[:, 2] << 20) | (q[:, 1] << 10) | q[:, 0]
+ 
+ 
+def _put(buf, name, values):
+    if buf is not None and name in buf.dtype.names:
+        buf[name] = values
+ 
+ 
+# ---------------------------------------------------------------------------
+# Skinning
+# ---------------------------------------------------------------------------
+def read_deform_weights(mesh):
+    """Blender has no foreach_get for vertex-group weights, so this is the one
+    unavoidable per-vertex Python pass. It only collects raw data; all the math
+    happens in build_skin()."""
+    n = len(mesh.vertices)
+    counts = np.zeros(n, dtype=np.int32)
+    grp, wgt = [], []
+    for i, v in enumerate(mesh.vertices):
+        gs = v.groups
+        counts[i] = len(gs)
+        for g in gs:
+            grp.append(g.group)
+            wgt.append(g.weight)
+    return counts, np.array(grp, dtype=np.int32), np.array(wgt, dtype=np.float64)
+ 
+ 
+def build_skin(counts, grp, wgt, vert_ids, slot_for_group):
+    """Pure numpy. counts/grp/wgt are the ragged per-vertex group data.
+    slot_for_group(g) must return the local bone slot for vertex-group index g;
+    it is called once per distinct group, in first-seen order (same order the
+    old per-vertex loop registered bones in)."""
+    n_all = len(counts)
+    K = max(int(counts.max()) if n_all else 0, MAX_WEIGHTS)
+ 
+    valid = np.arange(K) < counts[:, None]
+    grp2d = np.zeros((n_all, K), dtype=np.int32)
+    wgt2d = np.zeros((n_all, K), dtype=np.float64)
+    grp2d[valid] = grp
+    wgt2d[valid] = wgt
+ 
+    grp2d, wgt2d, valid = grp2d[vert_ids], wgt2d[vert_ids], valid[vert_ids]
+ 
+    seen = grp2d[valid]
+    uniq, first = np.unique(seen, return_index=True)
+    lut = np.zeros(int(seen.max()) + 1 if seen.size else 1, dtype=np.int32)
+    for g in uniq[np.argsort(first)]:
+        lut[g] = slot_for_group(int(g))
+    bones2d = lut[grp2d]
+    bones2d[~valid] = 0
+ 
+    order = np.argsort(-wgt2d, axis=1, kind="stable")[:, :MAX_WEIGHTS]
+    w = np.take_along_axis(wgt2d, order, axis=1)
+    b = np.take_along_axis(bones2d, order, axis=1)
+ 
+    total = w.sum(axis=1)
+    has = total > 0
+    w = np.divide(w, total[:, None], out=np.zeros_like(w), where=has[:, None])
+    iw = np.floor(w * 255.0).astype(np.int32)
+    iw[~has] = (255, 0, 0, 0)  # NOTE: old loop spread 255 across all 4 slots here
+    rem = np.clip(255 - iw.sum(axis=1), 0, MAX_WEIGHTS)
+    iw += (np.arange(MAX_WEIGHTS) < rem[:, None])
+ 
+    if b.size and b.max() > 255:
+        raise ValueError("More than 256 bone refs in one mesh; u1 bone index overflows")
+    return b.astype(np.uint8), np.clip(iw, 0, 255).astype(np.uint8)
+ 
+ 
+# ---------------------------------------------------------------------------
 class WMBVertexChunk:
-
-
-    def __init__(self, children, ref_table, b2, col, vtx_fmt):
-        self.vertex_infos = []
-        self.exvertex_infos = []
-        self.total_vertices = 0
+ 
+    def __init__(self, children, ref_table, b2, col, vtx_fmt, use_ex, big_endian=False):
+        self.b2 = b2
+        self.endian = ">" if big_endian else "<"
         self.num_mapping = 2
         self.num_color = 1
-
-        if ("num_color" in col.collection):
+ 
+        if "num_color" in col.collection:
             self.num_color = int(col.collection["num_color"])
-
-        if ("num_uv" in col.collection):
+ 
+        if "num_uv" in col.collection:
             self.num_mapping = int(col.collection["num_uv"])
-        else:
-            if (b2):
-                self.num_mapping = 1
-
-
-        self.vertex_dtype = None
-        self.exvertex_dtype = None
-
-
-        self.exvertex_size = (self.num_color*4)
-        if (self.num_mapping>1):
-            self.exvertex_size+=(self.num_mapping-1)*4
-        
+        elif b2:
+            self.num_mapping = 1
+ 
+        self.exvertex_size = self.num_color * 4
+        if self.num_mapping > 1:
+            self.exvertex_size += (self.num_mapping - 1) * 4
+ 
+        # dtypes depend only on format/endianness, so build them once
+        self.vertex_dtype = self._make_vertex_dtype(vtx_fmt)
+        self.exvertex_dtype = self._make_exvertex_dtype(vtx_fmt, use_ex)
+ 
+        v_parts, ex_parts = [], []
         vertex_ticker = 0
         for obj in children:
             if obj.type != 'MESH':
                 continue
-            
-            if ("copy_uv_1_as_2" not in obj):
-                obj["copy_uv_1_as_2"] = False
-
             print(f"[>] Generating vertex data for {obj.name}")
-
-            if len(obj.data.uv_layers) != 0:
-                uv_layer = obj.data.uv_layers.get("UVMap2")
-                if uv_layer is None:
-                    uv_layer = obj.data.uv_layers.get("UVMap1")
-                if uv_layer is None:
-                    uv_layer = obj.data.uv_layers.active
-                if uv_layer is not None:
-                    obj.data.calc_tangents(uvmap=uv_layer.name)
-
-            uv_layer_1 = obj.data.uv_layers.get("UVMap1")
-            uv_layer_2 = obj.data.uv_layers.get("UVMap2")
-            uv_layer_3 = obj.data.uv_layers.get("UVMap3")
-            
-                
-            def get_blenderLoops(self, objOwner):
-                blenderLoops = []
-                blenderLoops += objOwner.data.loops
-
-                return blenderLoops
-
-            ref_table[obj.name] = {}
-            bone_counter = 0
-
-            loops = get_blenderLoops(self, obj)
-            sorted_loops = sorted(loops, key=lambda loop: loop.vertex_index)
-
-            ex_color_layer = obj.data.vertex_colors.get("ExCol", None)
-            main_color_layer = obj.data.vertex_colors.get("Col", None)
-
+ 
             obj["vertex_start"] = vertex_ticker
-
-            if (main_color_layer is None):
-                print("[!] No Base Colors found! (SCR Only)")
-            if (ex_color_layer is None):
-                print("[!] No ExColors found!")
-
-            if ("bone_refs" in obj):
-                print("[>] Preloading Bone Refs...")
-                for ref in obj["bone_refs"]:
-                    if (ref not in ref_table[obj.name]):
-                        ref_table[obj.name][ref] = bone_counter
-                        bone_counter += 1
-
-            loop_vertex_indices = np.empty(
-                len(obj.data.loops),
-                dtype=np.int32
-            )
-
-            obj.data.loops.foreach_get(
-                "vertex_index",
-                loop_vertex_indices
-            )
-
-            selected_vertex_indices, selected_loop_indices = np.unique(
-                loop_vertex_indices,
-                return_index=True
-            )
-
-
-            # /-- Always: Positions
-            positions = np.empty(len(obj.data.vertices) * 3, dtype=np.float32)
-
-            obj.data.vertices.foreach_get("co", positions)
-            positions = positions.reshape(-1, 3)
-
-
-            positions_out = positions[selected_vertex_indices]
-
-            # /-- Mapping (always at least 1)
-            uv_1 = np.empty(
-                len(uv_layer_1) * 2,
-                dtype=np.float32
-            )
-            uv_1 = uv_1.reshape(-1, 2)
-            uv_1[:, 1] = 1.0 - uv_1[:, 1]
-            uv_1_out = uv_1[selected_loop_indices]
-
-            if (self.num_mapping > 1):
-                uv_layer_2 = np.empty(
-                    len(uv_layer_2) * 2,
-                    dtype=np.float32
-                )
-                uv_2 = uv_2.reshape(-1, 2)
-                uv_2[:, 1] = 1.0 - uv_2[:, 1]
-                uv_2_out = uv_2[selected_loop_indices]
-                
-            if (self.num_mapping > 2):
-                uv_layer_3 = np.empty(
-                    len(uv_layer_3) * 2,
-                    dtype=np.float32
-                )
-                uv_3 = uv_3.reshape(-1, 2)
-                uv_3[:, 1] = 1.0 - uv_3[:, 1]
-                uv_3_out = uv_3[selected_loop_indices]
-
-            # /-- Always: Normals
-            normals = np.empty(len(obj.data.loops) * 3, dtype=np.float32)
-
-            obj.data.loops.foreach_get("normal", normals)
-            normals = normals.reshape(-1, 3)
-
-            normals_out = normals[selected_loop_indices]
-
-            normals_out = normals_out[:, [0, 2, 1]] # X Y Z -> X Z Y
-            normals_out[:, 2] *= -1  # X Z Y -> X Z -Y
-
-
-            # /-- Always: Tangents
-            tangents = np.empty(
-                len(obj.data.loops) * 3,
-                dtype=np.float32
-            )
-
-            obj.data.loops.foreach_get(
-                "tangent",
-                tangents
-            )
-
-            tangents = tangents.reshape(-1, 3)
-
-            tangents_out = tangents[selected_loop_indices]
-
-            bitangent_sign = np.empty(
-                len(obj.data.loops),
-                dtype=np.float32
-            )
-
-            obj.data.loops.foreach_get(
-                "bitangent_sign",
-                bitangent_sign
-            )
-
-            bitangent_sign = bitangent_sign[selected_loop_indices]
-
-            if (vtx_fmt == 0x6000001F or vtx_fmt == 0x6000001F):
-                # deal with 2 mappings in the core formats
-                if (self.num_mapping == 2): # also we have to deal with that stupid position buffer being outside of the vertex
-                    self.vertex_dtype = np.dtype([ 
-                        ("normal",    "u1", 4),
-                        ("col_1",    "u1", 4),
-                        ("tangent",   "u1", 4),
-                        ("bones",     "u1", 4),
-                        ("weights",   "u1", 4),
-                        ("uv_1",       "<f2", 2),
-                        ("uv_2",       "<f2", 2),
-                    ])
-                else:
-                    self.vertex_dtype = np.dtype([ 
-                        ("normal",    "u1", 4),
-                        ("col_1",    "u1", 4),
-                        ("tangent",   "u1", 4),
-                        ("bones",     "u1", 4),
-                        ("weights",   "u1", 4),
-                        ("uv_1",       "<f2", 2),
-                    ])
-
-            masked_format = vtx_fmt & 0xff
-            if (masked_format == 0x3F or masked_format == 0x1F or masked_format == 0x1D):
-                self.vertex_dtype = np.dtype([ 
-                    ("position",    "<f4", 3),
-                    ("uv_1",       "<f2", 2),
-                    ("normal",    "u1", 4),
-                    ("tangent",   "u1", 4),
-                    ("bones",     "u1", 4),
-                    ("weights",   "u1", 4),
-                ])
-            elif (masked_format == 0x2F):
-                print("[!] Unsupport format! Export will fail!")
-                # how the hell am i supposed to represent two vertex positions
-            elif (masked_format == 0xF):
-                if (self.num_mapping == 2):
-                    self.vertex_dtype = np.dtype([ 
-                        ("position",    "<f4", 3),
-                        ("uv_1",       "<f2", 2),
-                        ("normal",    "u1", 4),
-                        ("tangent",   "u1", 4),
-                        ("col_1",    "u1", 4),
-                        ("uv_2",       "<f2", 2),
-                    ])
-
-                else:
-                    self.vertex_dtype = np.dtype([ 
-                        ("position",    "<f4", 3),
-                        ("uv_1",       "<f2", 2),
-                        ("normal",    "u1", 4),
-                        ("tangent",   "u1", 4),
-                        ("col_1",    "u1", 4),
-                    ])
-            elif (masked_format == 0xD):
-                self.vertex_dtype = np.dtype([ 
-                    ("position",    "<f4", 3),
-                    ("uv_1",       "<f2", 2),
-                    ("normal",    "u1", 4),
-                    ("tangent",   "u1", 4),
-                ])
-
-            # TODO: Extra vertex data
-
-
-
-
-
-
-
-            previousIndex = -1
-            for loop in sorted_loops:
-                vertex_info = []
-                ex_vertex_info = []
-                if (loop.vertex_index == previousIndex):
-                    continue
-
-                vertex_ticker+=1
-
-                previousIndex = loop.vertex_index
-
-                bvtx = obj.data.vertices[loop.vertex_index]
-
-                MAX_WEIGHTS = 4
-                bone_weights = []
-                bone_indices = []
-                for g in bvtx.groups:
-                    group_index = g.group
-                    weight = g.weight
-                    group_name = obj.vertex_groups[group_index].name
-                    bone_id = 0
-
-                    if (getBoneID(group_name) in ref_table[obj.name]):
-                        bone_id = ref_table[obj.name][getBoneID(group_name)]
-                    else:
-                        bone_id = bone_counter
-                        ref_table[obj.name][getBoneID(group_name)] = bone_counter
-                        bone_counter+=1
-
-                    
-                    bone_weights.append(weight)
-                    bone_indices.append(bone_id)
-
-                if (not EXPORT_AS_STATIC_MESH):
-                    pairs = list(zip(bone_weights, bone_indices))
-                    pairs = sorted(pairs, key=lambda p: p[0], reverse=True)[:MAX_WEIGHTS]
-
-                    float_weights = [p[0] for p in pairs]
-                    sel_indices = [p[1] for p in pairs]
-
-                    total = sum(float_weights)
-                    if total > 0:
-                        float_weights = [w / total for w in float_weights]
-                    else:
-                        float_weights = [0.0] * len(float_weights)
-
-                    while len(float_weights) < MAX_WEIGHTS:
-                        float_weights.append(0.0)
-                        sel_indices.append(0)
-
-                    int_weights = [int(w * 255.0) for w in float_weights]
-
-                    rem = 255 - sum(int_weights)
-                    if rem != 0:
-                        order = sorted(range(MAX_WEIGHTS), key=lambda i: float_weights[i], reverse=True)
-                        i = 0
-                        while rem != 0:
-                            idx = order[i]
-                            if rem > 0 and int_weights[idx] < 255:
-                                int_weights[idx] += 1
-                                rem -= 1
-                            elif rem < 0 and int_weights[idx] > 0:
-                                int_weights[idx] -= 1
-                                rem += 1
-                            i = (i + 1) % MAX_WEIGHTS
-
-                    int_weights = [max(0, min(255, w)) for w in int_weights]
-
-
-                position = (bvtx.co.x, bvtx.co.y, bvtx.co.z)
-                vertex_info.append(position) # Write position to buffer
-
-                normal = (loop.normal[0], loop.normal[2], -loop.normal[1])
-
-                
-                vertex_info.append(normal) # Write normal to buffer
-                
-                loopTangent = loop.tangent * 127
-                tx = int(loopTangent[0] + 127.0)
-                ty = int(loopTangent[1] + 127.0)
-                tz = int(loopTangent[2] + 127.0)
-                sign = 0xff if loop.bitangent_sign == -1 else 0
-                vertex_info.append((tx, ty, tz, sign))
-
-                if (not EXPORT_AS_STATIC_MESH): # This is so bad LMAO
-                    vertex_info.append(tuple(sel_indices))
-                    vertex_info.append(tuple(int_weights))
-                else:
-                    vertex_info.append((0, 0, 0, 0))
-                    vertex_info.append((0, 0, 0, 0))
-
-                mainUV = get_blenderUVCoordsEx(self, obj, loop.index, "UVMap1")
-                vertex_info.append(mainUV)
-                vertex_info.append([]) # Unused
-                if (main_color_layer is not None):
-                    vertex_info.append(blenderColorToBayo((main_color_layer.data[loop.index].color)))
-
-
-                exMap = get_blenderUVCoordsEx(self, obj, loop.index, "UVMap2")
-
-
-                if (ex_color_layer is not None):
-                    ex_vertex_info.append(blenderColorToBayo((ex_color_layer.data[loop.index].color)))
-                else:
-                    ex_vertex_info.append((0, 0, 0, 0))
-
-                if (self.num_mapping == 2):
-                    if (obj["copy_uv_1_as_2"]):
-                        ex_vertex_info.append(mainUV)
-                    else:
-                        if (exMap is not None):
-                            ex_vertex_info.append(exMap)
-
-                if (EXPORT_AS_STATIC_MESH):
-                    if (self.num_mapping == 2):
-                        vertex_info.append(mainUV if obj["copy_uv_1_as_2"] else exMap)
-                    
-                    
-
-                    
-
-
-                self.vertex_infos.append(vertex_info)
-                self.exvertex_infos.append(ex_vertex_info)
-
-                if (obj["dummy"]):
-                    break # Quit after the first iteration
-
+            vbuf, exbuf = self._build_object(obj, ref_table)
+            v_parts.append(vbuf)
+            if exbuf is not None:
+                ex_parts.append(exbuf)
+            vertex_ticker += len(vbuf)
             obj["vertex_end"] = vertex_ticker
-
+ 
         self.total_vertices = vertex_ticker
-
-        self.vertex_buffer = np.empty(
-            self.total_vertices,
-            dtype=self.vertex_dtype
-        )
-
-        self.exvertex_buffer = np.empty(
-            self.total_vertices,
-            dtype=self.exvertex_dtype
-        )
-
+        self.vertex_buffer = (np.concatenate(v_parts) if v_parts
+                              else np.zeros(0, dtype=self.vertex_dtype))
+        if self.exvertex_dtype is None:
+            self.exvertex_buffer = None
+        else:
+            self.exvertex_buffer = (np.concatenate(ex_parts) if ex_parts
+                                    else np.zeros(0, dtype=self.exvertex_dtype))
+ 
+    # ------------------------------------------------------------------
+    def _make_vertex_dtype(self, vtx_fmt):
+        e = self.endian
+        fmt = vtx_fmt & 0xFF
+        pos = ("position", e + "f4", 3)
+        uv1 = ("uv_1", e + "f2", 2)
+        # B2 normals are one u32 (endian-dependent); B1 are 4 signed bytes (fixed order)
+        nrm = ("normal", e + "u4") if self.b2 else ("normal", "i1", 4)
+        tan = ("tangent", "u1", 4)
+ 
+        # (Your old `vtx_fmt == 0x6000001F or vtx_fmt == 0x6000001F` block was always
+        # overwritten by the 0x1F branch, and WMB0_Write_VertexData never used it.)
+        if fmt in (0x3F, 0x1F, 0x1D):
+            fields = [pos, uv1, nrm, tan, ("bones", "u1", 4), ("weights", "u1", 4)]
+        elif fmt == 0xF:
+            fields = [pos, uv1, nrm, tan, ("col_1", "u1", 4)]
+            if self.num_mapping == 2:
+                fields.append(("uv_2", e + "f2", 2))
+        elif fmt == 0xD:
+            fields = [pos, uv1, nrm, tan]
+        else:
+            raise ValueError(f"Unsupported vertex format {vtx_fmt:#x}")
+        return np.dtype(fields)
+ 
+    def _make_exvertex_dtype(self, vtx_fmt, use_ex):
+        if not use_ex or (vtx_fmt & 0xFF) == 0x2F:
+            return None
+        fields = [(f"col_{i + 1}", "u1", 4) for i in range(self.num_color)]
+        fields += [(f"uv_{i + 2}", self.endian + "f2", 2) for i in range(self.num_mapping - 1)]
+        return np.dtype(fields)
+ 
+    # ------------------------------------------------------------------
+    def _build_object(self, obj, ref_table):
+        mesh = obj.data
+        if "copy_uv_1_as_2" not in obj:
+            obj["copy_uv_1_as_2"] = False
+ 
+        # tangents (same layer priority as before)
+        if len(mesh.uv_layers) != 0:
+            uv_layer = mesh.uv_layers.get("UVMap2")
+            if uv_layer is None:
+                uv_layer = mesh.uv_layers.get("UVMap1")
+            if uv_layer is None:
+                uv_layer = mesh.uv_layers.active
+            if uv_layer is not None:
+                mesh.calc_tangents(uvmap=uv_layer.name)
+ 
+        ex_color_layer = mesh.vertex_colors.get("ExCol", None)
+        main_color_layer = mesh.vertex_colors.get("Col", None)
+        if main_color_layer is None:
+            print("[!] No Base Colors found! (SCR Only)")
+        if ex_color_layer is None:
+            print("[!] No ExColors found!")
+ 
+        table = ref_table[obj.name] = {}
+        if "bone_refs" in obj:
+            print("[>] Preloading Bone Refs...")
+            for ref in obj["bone_refs"]:
+                table.setdefault(ref, len(table))
+ 
+        # one representative loop per vertex (first loop, ascending vertex index)
+        n_loops = len(mesh.loops)
+        loop_vidx = _fetch(mesh.loops, "vertex_index", n_loops, dtype=np.int32)
+        vert_ids, first_loop = np.unique(loop_vidx, return_index=True)
+        if obj.get("dummy", False):
+            vert_ids, first_loop = vert_ids[:1], first_loop[:1]
+        n = len(vert_ids)
+ 
+        # zeros, not empty: unfilled fields (static-mesh bones, missing colors) must be 0
+        vbuf = np.zeros(n, dtype=self.vertex_dtype)
+        exbuf = np.zeros(n, dtype=self.exvertex_dtype) if self.exvertex_dtype is not None else None
+ 
+        # position (raw, same as the old writer)
+        pos = _fetch(mesh.vertices, "co", len(mesh.vertices), 3)
+        _put(vbuf, "position", pos[vert_ids])
+ 
+        # normal: raw Blender normals (the old X Z -Y swizzle was undone in the writer)
+        nrm = _fetch(mesh.loops, "normal", n_loops, 3)[first_loop]
+        _put(vbuf, "normal", _pack_normal_b2(nrm) if self.b2 else _pack_normal_b1(nrm))
+ 
+        # tangent
+        tan = _fetch(mesh.loops, "tangent", n_loops, 3)[first_loop]
+        sgn = _fetch(mesh.loops, "bitangent_sign", n_loops)[first_loop]
+        _put(vbuf, "tangent", _pack_tangent(tan, sgn))
+ 
+        # UVs. Every field that exists in the dtype gets filled; no per-format branching.
+        uv1 = _fetch_uv(mesh.uv_layers.get("UVMap1"), n_loops)
+        uv1 = uv1[first_loop] if uv1 is not None else np.zeros((n, 2), np.float64)
+        _put(vbuf, "uv_1", uv1)
+ 
+        if self.num_mapping > 1:
+            uv2 = None
+            if not obj["copy_uv_1_as_2"]:
+                uv2 = _fetch_uv(mesh.uv_layers.get("UVMap2"), n_loops)
+            uv2 = uv1 if uv2 is None else uv2[first_loop]
+            _put(vbuf, "uv_2", uv2)
+            _put(exbuf, "uv_2", uv2)
+        if self.num_mapping > 2:
+            uv3 = _fetch_uv(mesh.uv_layers.get("UVMap3"), n_loops)
+            if uv3 is not None:
+                _put(exbuf, "uv_3", uv3[first_loop])
+ 
+        # colors
+        if WRITE_MAIN_COLORS:
+            main_col = _fetch_color(main_color_layer, n_loops)
+            if main_col is not None:
+                _put(vbuf, "col_1", _color_to_bytes(main_col[first_loop]))
+        ex_col = _fetch_color(ex_color_layer, n_loops)
+        if ex_col is not None:
+            _put(exbuf, "col_1", _color_to_bytes(ex_col[first_loop]))
+ 
+        # skinning
+        if not EXPORT_AS_STATIC_MESH:
+            counts, grp, wgt = read_deform_weights(mesh)
+ 
+            def slot_for_group(g):
+                bone_id = getBoneID(obj.vertex_groups[g].name)
+                if bone_id not in table:
+                    table[bone_id] = len(table)
+                return table[bone_id]
+ 
+            bones, weights = build_skin(counts, grp, wgt, vert_ids, slot_for_group)
+            _put(vbuf, "bones", bones)
+            _put(vbuf, "weights", weights)
+ 
+        return vbuf, exbuf
 
 def getBoneID(boneName): # LOCAL ID BTW
     return bone_name_to_id_map[boneName] # later is now, and this is important!
@@ -1193,14 +1110,16 @@ class WMBDataGenerator:
 
         ## -- VERTEX CHUNK A --
         self.offset_vertexes = offset_ticker
-        self.vertex_data = WMBVertexChunk(getObjectChildren(arm_obj), bone_reference_dictionary, self.bayo_2, sub_collection, self.vtx_format)
-        offset_ticker += self.vertex_data.total_vertices * 32
+        self.vertex_data = WMBVertexChunk(getObjectChildren(arm_obj), bone_reference_dictionary,
+                                        self.bayo_2, sub_collection, self.vtx_format,
+                                        self.use_ex_data, platform in BIG_ENDIAN_PLATFORMS)
+        offset_ticker += self.vertex_data.vertex_buffer.nbytes
         offset_ticker = align(offset_ticker, ALIGN_TARGET)
 
         if (self.use_ex_data):
             self.offset_ex_vertexes = offset_ticker
 
-            offset_ticker += self.vertex_data.total_vertices * self.vertex_data.exvertex_size
+            offset_ticker += self.vertex_data.exvertex_buffer.nbytes
             offset_ticker = align(offset_ticker, ALIGN_TARGET)
         else:
             self.offset_ex_vertexes = 0
@@ -1376,64 +1295,12 @@ def WMB0_Write_HDR(f : BinWriter, generated_data : WMBDataGenerator):
         f.write_u32(generated_data.ex_mat_A)
         f.write_u32(generated_data.ex_mat_B)
 
-def WMB0_Write_VertexData(f : BinWriter, generated_data : WMBDataGenerator):
-    for data in generated_data.vertex_data.vertex_infos:
-        f.write_float32(data[0][0])
-        f.write_float32(data[0][1])
-        f.write_float32(data[0][2])
-        f.write_float16(data[5][0])
-        f.write_float16(data[5][1])
-
-        #f.write(struct.pack("<ee", *data[5]))
-
-        if (generated_data.bayo_2):
-            fx, fy, fz = data[1][0], data[1][1], data[1][2]
-            f.write_u32(pack_b2_normal(fx, -fz, fy)) # Normals (Might be wrong for BE)
-
-        else:
-            nx = int(round(data[1][0] * 127))
-            ny = int(round(data[1][1] * 127))
-            nz = int(round(data[1][2] * 127))
-
-            nx = max(-127, min(127, nx))
-            ny = max(-127, min(127, ny))
-            nz = max(-127, min(127, nz))
-            #f.write(struct.pack('<4b', 0, ny, -nz, nx)) # Normals
-            f.write_s8(0) # might need to be order flipped
-            f.write_s8(ny)
-            f.write_s8(-nz)
-            f.write_s8(nx)
-
-        tx, ty, tz, d = data[2]
-        tangent_bytes = bytes([
-            tx,
-            ty,
-            tz,
-            d
-        ])
-
-        f.write(tangent_bytes) # might need to be order flipped for BE
-
-        if (EXPORT_AS_STATIC_MESH):
-            f.write_u32(0)
-            #f.write(struct.pack("<BBBB", *data[7]))
-            if (generated_data.vertex_data.num_mapping == 2):
-                #uv_bytes = float_to_half_bytes(data[1][0]) + float_to_half_bytes(1 - data[1][1])
-                #f.write(uv_bytes)
-                f.write_float16(data[6][0])
-                f.write_float16(data[6][1])
-
-        else:
-            f.write_packed_bytes_unsigned(*data[3]) # Bone Indexes
-            f.write_packed_bytes_unsigned(*data[4]) # Bone Weights
-
-    if (generated_data.use_ex_data):
+def WMB0_Write_VertexData(f, generated_data):
+    vd = generated_data.vertex_data
+    f.write(vd.vertex_buffer.tobytes())
+    if generated_data.use_ex_data and vd.exvertex_buffer is not None:
         f.seek(generated_data.offset_ex_vertexes)
-        for data in generated_data.vertex_data.exvertex_infos:
-            f.write_packed_bytes_unsigned(*data[0])
-            if (generated_data.vertex_data.num_mapping == 2):
-                f.write_float16(data[1][0])
-                f.write_float16(data[1][1])
+        f.write(vd.exvertex_buffer.tobytes())
     else:
         print("[!] Skipping ExData write! Enable the property in the model collection if this is an error.")
 
@@ -1606,7 +1473,7 @@ def WMB0_Write_Mesh_Data(f : BinWriter, generated_data : WMBDataGenerator):
             batch_tick+=1
 
 
-from ... platforms import BIG_ENDIAN_PLATFORMS
+
 def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=False, copy_uv=True, bayonetta_2=False, static_mesh=False, targetCol=None, platform="PC", gamename="AUTO"):
     global GENERATE_TRANSLATE_TABLE
     global USE_LARGE_BONES
