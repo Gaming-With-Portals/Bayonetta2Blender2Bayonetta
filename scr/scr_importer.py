@@ -1,5 +1,5 @@
 from ..structwrapper import BinReader
-from ..wmb import wmb_importer
+from ..wmb.wmb0 import wmb_importer
 import bpy
 import os
 import mathutils, math

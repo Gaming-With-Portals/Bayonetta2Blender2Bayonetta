@@ -1,4 +1,7 @@
 import bpy
+import cProfile
+import pstats
+import io
 import struct
 from collections import defaultdict
 import bmesh
@@ -10,6 +13,7 @@ from .wmb_custom_bones import encode_parts_index_no_table as GenerateTranslateTa
 import re
 from ...structwrapper import BinWriter
 
+# /-- Generator Cofig --/
 GENERATE_TRANSLATE_TABLE = True
 USE_LARGE_BONES = False
 OP_INSTANCE = None
@@ -23,6 +27,11 @@ ALL_BONE_REFS = True
 
 
 USE_EX_DATA = True
+
+
+# /-- Other Config --/
+DO_PROFILE = True
+
 
 bone_name_to_id_map = {}
 bone_name_to_global_id_map = {}
@@ -100,7 +109,7 @@ def blenderColorToBayo(color):
 class WMBVertexChunk:
 
 
-    def __init__(self, children, ref_table, b2, col):
+    def __init__(self, children, ref_table, b2, col, vtx_fmt):
         self.vertex_infos = []
         self.exvertex_infos = []
         self.total_vertices = 0
@@ -115,6 +124,10 @@ class WMBVertexChunk:
         else:
             if (b2):
                 self.num_mapping = 1
+
+
+        self.vertex_dtype = None
+        self.exvertex_dtype = None
 
 
         self.exvertex_size = (self.num_color*4)
@@ -139,6 +152,11 @@ class WMBVertexChunk:
                     uv_layer = obj.data.uv_layers.active
                 if uv_layer is not None:
                     obj.data.calc_tangents(uvmap=uv_layer.name)
+
+            uv_layer_1 = obj.data.uv_layers.get("UVMap1")
+            uv_layer_2 = obj.data.uv_layers.get("UVMap2")
+            uv_layer_3 = obj.data.uv_layers.get("UVMap3")
+            
                 
             def get_blenderLoops(self, objOwner):
                 blenderLoops = []
@@ -168,7 +186,167 @@ class WMBVertexChunk:
                     if (ref not in ref_table[obj.name]):
                         ref_table[obj.name][ref] = bone_counter
                         bone_counter += 1
-            
+
+            loop_vertex_indices = np.empty(
+                len(obj.data.loops),
+                dtype=np.int32
+            )
+
+            obj.data.loops.foreach_get(
+                "vertex_index",
+                loop_vertex_indices
+            )
+
+            selected_vertex_indices, selected_loop_indices = np.unique(
+                loop_vertex_indices,
+                return_index=True
+            )
+
+
+            # /-- Always: Positions
+            positions = np.empty(len(obj.data.vertices) * 3, dtype=np.float32)
+
+            obj.data.vertices.foreach_get("co", positions)
+            positions = positions.reshape(-1, 3)
+
+
+            positions_out = positions[selected_vertex_indices]
+
+            # /-- Mapping (always at least 1)
+            uv_1 = np.empty(
+                len(uv_layer_1) * 2,
+                dtype=np.float32
+            )
+            uv_1 = uv_1.reshape(-1, 2)
+            uv_1[:, 1] = 1.0 - uv_1[:, 1]
+            uv_1_out = uv_1[selected_loop_indices]
+
+            if (self.num_mapping > 1):
+                uv_layer_2 = np.empty(
+                    len(uv_layer_2) * 2,
+                    dtype=np.float32
+                )
+                uv_2 = uv_2.reshape(-1, 2)
+                uv_2[:, 1] = 1.0 - uv_2[:, 1]
+                uv_2_out = uv_2[selected_loop_indices]
+                
+            if (self.num_mapping > 2):
+                uv_layer_3 = np.empty(
+                    len(uv_layer_3) * 2,
+                    dtype=np.float32
+                )
+                uv_3 = uv_3.reshape(-1, 2)
+                uv_3[:, 1] = 1.0 - uv_3[:, 1]
+                uv_3_out = uv_3[selected_loop_indices]
+
+            # /-- Always: Normals
+            normals = np.empty(len(obj.data.loops) * 3, dtype=np.float32)
+
+            obj.data.loops.foreach_get("normal", normals)
+            normals = normals.reshape(-1, 3)
+
+            normals_out = normals[selected_loop_indices]
+
+            normals_out = normals_out[:, [0, 2, 1]] # X Y Z -> X Z Y
+            normals_out[:, 2] *= -1  # X Z Y -> X Z -Y
+
+
+            # /-- Always: Tangents
+            tangents = np.empty(
+                len(obj.data.loops) * 3,
+                dtype=np.float32
+            )
+
+            obj.data.loops.foreach_get(
+                "tangent",
+                tangents
+            )
+
+            tangents = tangents.reshape(-1, 3)
+
+            tangents_out = tangents[selected_loop_indices]
+
+            bitangent_sign = np.empty(
+                len(obj.data.loops),
+                dtype=np.float32
+            )
+
+            obj.data.loops.foreach_get(
+                "bitangent_sign",
+                bitangent_sign
+            )
+
+            bitangent_sign = bitangent_sign[selected_loop_indices]
+
+            if (vtx_fmt == 0x6000001F or vtx_fmt == 0x6000001F):
+                # deal with 2 mappings in the core formats
+                if (self.num_mapping == 2): # also we have to deal with that stupid position buffer being outside of the vertex
+                    self.vertex_dtype = np.dtype([ 
+                        ("normal",    "u1", 4),
+                        ("col_1",    "u1", 4),
+                        ("tangent",   "u1", 4),
+                        ("bones",     "u1", 4),
+                        ("weights",   "u1", 4),
+                        ("uv_1",       "<f2", 2),
+                        ("uv_2",       "<f2", 2),
+                    ])
+                else:
+                    self.vertex_dtype = np.dtype([ 
+                        ("normal",    "u1", 4),
+                        ("col_1",    "u1", 4),
+                        ("tangent",   "u1", 4),
+                        ("bones",     "u1", 4),
+                        ("weights",   "u1", 4),
+                        ("uv_1",       "<f2", 2),
+                    ])
+
+            masked_format = vtx_fmt & 0xff
+            if (masked_format == 0x3F or masked_format == 0x1F or masked_format == 0x1D):
+                self.vertex_dtype = np.dtype([ 
+                    ("position",    "<f4", 3),
+                    ("uv_1",       "<f2", 2),
+                    ("normal",    "u1", 4),
+                    ("tangent",   "u1", 4),
+                    ("bones",     "u1", 4),
+                    ("weights",   "u1", 4),
+                ])
+            elif (masked_format == 0x2F):
+                print("[!] Unsupport format! Export will fail!")
+                # how the hell am i supposed to represent two vertex positions
+            elif (masked_format == 0xF):
+                if (self.num_mapping == 2):
+                    self.vertex_dtype = np.dtype([ 
+                        ("position",    "<f4", 3),
+                        ("uv_1",       "<f2", 2),
+                        ("normal",    "u1", 4),
+                        ("tangent",   "u1", 4),
+                        ("col_1",    "u1", 4),
+                        ("uv_2",       "<f2", 2),
+                    ])
+
+                else:
+                    self.vertex_dtype = np.dtype([ 
+                        ("position",    "<f4", 3),
+                        ("uv_1",       "<f2", 2),
+                        ("normal",    "u1", 4),
+                        ("tangent",   "u1", 4),
+                        ("col_1",    "u1", 4),
+                    ])
+            elif (masked_format == 0xD):
+                self.vertex_dtype = np.dtype([ 
+                    ("position",    "<f4", 3),
+                    ("uv_1",       "<f2", 2),
+                    ("normal",    "u1", 4),
+                    ("tangent",   "u1", 4),
+                ])
+
+            # TODO: Extra vertex data
+
+
+
+
+
+
 
             previousIndex = -1
             for loop in sorted_loops:
@@ -299,7 +477,19 @@ class WMBVertexChunk:
                     break # Quit after the first iteration
 
             obj["vertex_end"] = vertex_ticker
+
         self.total_vertices = vertex_ticker
+
+        self.vertex_buffer = np.empty(
+            self.total_vertices,
+            dtype=self.vertex_dtype
+        )
+
+        self.exvertex_buffer = np.empty(
+            self.total_vertices,
+            dtype=self.exvertex_dtype
+        )
+
 
 def getBoneID(boneName): # LOCAL ID BTW
     return bone_name_to_id_map[boneName] # later is now, and this is important!
@@ -803,6 +993,7 @@ class WMBDataGenerator:
             sub_collection = targetCollection
 
 
+
         #arm_obj = sub_collection.collection # Maybe?
 
         material_remap = []
@@ -1002,7 +1193,7 @@ class WMBDataGenerator:
 
         ## -- VERTEX CHUNK A --
         self.offset_vertexes = offset_ticker
-        self.vertex_data = WMBVertexChunk(getObjectChildren(arm_obj), bone_reference_dictionary, self.bayo_2, sub_collection)
+        self.vertex_data = WMBVertexChunk(getObjectChildren(arm_obj), bone_reference_dictionary, self.bayo_2, sub_collection, self.vtx_format)
         offset_ticker += self.vertex_data.total_vertices * 32
         offset_ticker = align(offset_ticker, ALIGN_TARGET)
 
@@ -1224,7 +1415,7 @@ def WMB0_Write_VertexData(f : BinWriter, generated_data : WMBDataGenerator):
         f.write(tangent_bytes) # might need to be order flipped for BE
 
         if (EXPORT_AS_STATIC_MESH):
-            f.write_u32("<I", 0)
+            f.write_u32(0)
             #f.write(struct.pack("<BBBB", *data[7]))
             if (generated_data.vertex_data.num_mapping == 2):
                 #uv_bytes = float_to_half_bytes(data[1][0]) + float_to_half_bytes(1 - data[1][1])
@@ -1434,6 +1625,10 @@ def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=Fa
     ALL_BONE_REFS = all_bone_refs
 
 
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+
     print("- BEGIN EXPORT -")
     
     print("[>] Preparing data...")
@@ -1492,6 +1687,12 @@ def export(filepath, op_inst=None, all_bone_refs=False, btt=True, large_bones=Fa
         print()
         if (generated_data.bone_sym.enabled):
             print("[WARNING] Bone Symmetries are enabled, this can cause issues on custom bones\nGo to the Armature custom properties to disable")
+
+    profiler.disable()
+
+    stats = pstats.Stats(profiler)
+    stats.sort_stats("cumtime")
+    stats.print_stats(50)
 
     print("Done!")
     return {'FINISHED'}

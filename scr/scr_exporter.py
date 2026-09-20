@@ -1,5 +1,5 @@
 import bpy
-from ..wmb import wmb_exporter
+from ..wmb.wmb0 import wmb_exporter
 import os
 import struct
 
